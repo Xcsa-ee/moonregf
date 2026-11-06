@@ -27,6 +27,10 @@ fn main {
     run_export_reg(args)
     return
   }
+  if args[1] == "--replay-log" {
+    run_replay_log(args)
+    return
+  }
   run_inspect(args)
 }
 
@@ -216,6 +220,38 @@ fn run_export_reg(args : Array[String]) -> Unit {
           " (" +
           text.length().to_string() +
           " chars)",
+        )
+      }
+    }
+  } catch {
+    @fs.IOError::IOError(message) => println("I/O error: " + message)
+  }
+}
+
+///|
+/// Replays a transaction log onto a hive and writes the patched copy.
+fn run_replay_log(args : Array[String]) -> Unit {
+  if args.length() < 4 {
+    println(
+      "usage: moon run cmd/main -- --replay-log <input.hive> <input.LOG1> [output.hive]",
+    )
+    return
+  }
+  let target = if args.length() >= 5 { args[4] } else { args[2] + ".replayed" }
+  try {
+    let hive = @fs.read_file_to_bytes(args[2])
+    let log = @fs.read_file_to_bytes(args[3])
+    match @moonregf.replay_log(hive, log) {
+      Err(error) => println("error: " + error.message())
+      Ok(replay) => {
+        @fs.write_bytes_to_file(target, replay.bytes)
+        println(
+          "replayed " +
+          replay.applied.to_string() +
+          " entries up to sequence " +
+          replay.final_sequence.to_string() +
+          " into " +
+          target,
         )
       }
     }

@@ -60,6 +60,7 @@ moon.pkg 中导入：
     moon run cmd/main -- --build demo.hive
     moon run cmd/main -- --import-reg backup.reg rebuilt.hive
     moon run cmd/main -- --export-reg rebuilt.hive out.reg HKEY_CURRENT_USER
+    moon run cmd/main -- --replay-log dirty.hive dirty.hive.LOG1 clean.hive
 
 ## 示例
 
@@ -83,13 +84,14 @@ moon.pkg 中导入：
 `.github/workflows/ci.yml` 在 Ubuntu 上安装 MoonBit 工具链并依次执行格式检查、检查、构建、
 wasm-gc 与 js 两个后端的测试，以及 `examples/basic`。
 
-- [ ] 事务日志 .LOG1/.LOG2 重放
+- [x] 事务日志 `.LOG1/.LOG2` 重放：解析 Windows 8.1+ 的 HvLE 条目（条目大小、序列号、脏页数、页引用），按存储顺序应用脏页并更新 base block 序列号与校验和，陈旧日志不动作
 
 ## 已知限制
 
 - 写入器只接受 ASCII 键名与值名，非 ASCII 名称返回 UnsupportedName。
 - 单个值最大 16344 字节，超过者返回 ValueTooLarge（尚未写 big data 分段）。
 - `.reg` 导入不支持 [-key] 删除段，遇到时返回 UnsupportedDelete。
+- 事务日志只解析 Windows 8.1 及更新版本的 HvLE 格式；更早的 512 字节头格式返回 UnsupportedLogVersion。
 - `.reg` 导出输出 UTF-8 文本；导入端支持 UTF-16LE 与 UTF-8 两种输入。
 
 ## 许可

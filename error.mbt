@@ -1,7 +1,7 @@
 ///|
-/// Errors reported while parsing or building a REGF hive file.
+/// Errors reported while parsing, building or replaying a REGF hive file.
 pub(all) enum RegfError {
-  // The input is shorter than the 4096-byte base block.
+  // The input cannot hold a REGF base block.
   TooShort(Int32)
   // The first four bytes are not regf.
   BadSignature(String)
@@ -27,6 +27,14 @@ pub(all) enum RegfError {
   BadRegFile(String)
   // A .reg section asks to delete a key, which the importer does not support yet.
   UnsupportedDelete(String)
+  // The file type says the file is neither a hive nor a transaction log.
+  NotALogFile(UInt32)
+  // The log uses a layout this library does not parse yet.
+  UnsupportedLogVersion(UInt32)
+  // A transaction log entry is malformed.
+  BadLogEntry(Int32)
+  // A dirty page points outside the hive bins data.
+  BadLogPage(Int32)
 }
 
 ///|
@@ -34,7 +42,7 @@ pub(all) enum RegfError {
 pub fn RegfError::message(self : RegfError) -> String {
   match self {
     TooShort(size) =>
-      "hive is " + size.to_string() + " bytes, the REGF base block needs 4096"
+      "input is " + size.to_string() + " bytes, the REGF base block needs 4096"
     BadSignature(signature) =>
       "unexpected signature " + signature + ", expected regf"
     BadChecksum(stored, computed) =>
@@ -63,5 +71,13 @@ pub fn RegfError::message(self : RegfError) -> String {
       " bytes cannot be stored in one data cell yet"
     BadRegFile(detail) => "cannot parse .reg text: " + detail
     UnsupportedDelete(path) => "deleting " + path + " is not supported yet"
+    NotALogFile(file_type) =>
+      "file type " + file_type.to_string() + " is not a transaction log"
+    UnsupportedLogVersion(version) =>
+      "log format " + version.to_string() + " is not supported"
+    BadLogEntry(offset) =>
+      "log entry at " + offset.to_string() + " is malformed"
+    BadLogPage(offset) =>
+      "dirty page at " + offset.to_string() + " is outside the hive bins data"
   }
 }
