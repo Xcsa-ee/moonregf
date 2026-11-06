@@ -23,6 +23,10 @@ pub(all) enum RegfError {
   UnsupportedName(Int32)
   // A value does not fit in a single data cell.
   ValueTooLarge(Int32)
+  // A .reg document cannot be parsed.
+  BadRegFile(String)
+  // A .reg section asks to delete a key, which the importer does not support yet.
+  UnsupportedDelete(String)
 }
 
 ///|
@@ -57,5 +61,7 @@ pub fn RegfError::message(self : RegfError) -> String {
       "value " +
       size.to_string() +
       " bytes cannot be stored in one data cell yet"
+    BadRegFile(detail) => "cannot parse .reg text: " + detail
+    UnsupportedDelete(path) => "deleting " + path + " is not supported yet"
   }
 }

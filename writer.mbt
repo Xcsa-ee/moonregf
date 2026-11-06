@@ -486,3 +486,22 @@ pub fn HiveBuilder::build(self : HiveBuilder) -> Result[Bytes, RegfError] {
   }
   Ok(Bytes::from_array(file))
 }
+
+///|
+/// Index of the child of parent whose name matches exactly, if any.
+pub fn HiveBuilder::child_index(
+  self : HiveBuilder,
+  parent : Int32,
+  name : String,
+) -> Int32? {
+  let children = self.children[parent]
+  let mut index = 0
+  while index < children.length() {
+    let candidate = children[index]
+    if self.names[candidate] == name {
+      return Some(candidate)
+    }
+    index = index + 1
+  }
+  None
+}
