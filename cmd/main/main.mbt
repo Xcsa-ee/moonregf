@@ -23,6 +23,10 @@ fn main {
     run_import_reg(args)
     return
   }
+  if args[1] == "--export-reg" {
+    run_export_reg(args)
+    return
+  }
   run_inspect(args)
 }
 
@@ -184,6 +188,36 @@ fn run_import_reg(args : Array[String]) -> Unit {
               }
             }
         }
+    }
+  } catch {
+    @fs.IOError::IOError(message) => println("I/O error: " + message)
+  }
+}
+
+///|
+/// Exports a hive as .reg text.
+fn run_export_reg(args : Array[String]) -> Unit {
+  if args.length() < 4 {
+    println(
+      "usage: moon run cmd/main -- --export-reg <input.hive> <output.reg> [root] ",
+    )
+    return
+  }
+  let root = if args.length() >= 5 { args[4] } else { "" }
+  try {
+    let data = @fs.read_file_to_bytes(args[2])
+    match @moonregf.export_reg_text(data, root) {
+      Err(error) => println("error: " + error.message())
+      Ok(text) => {
+        @fs.write_string_to_file(args[3], text)
+        println(
+          "exported to " +
+          args[3] +
+          " (" +
+          text.length().to_string() +
+          " chars)",
+        )
+      }
     }
   } catch {
     @fs.IOError::IOError(message) => println("I/O error: " + message)

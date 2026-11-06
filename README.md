@@ -59,6 +59,7 @@ moon.pkg 中导入：
     moon run cmd/main -- <path-to-NTUSER.DAT> --values
     moon run cmd/main -- --build demo.hive
     moon run cmd/main -- --import-reg backup.reg rebuilt.hive
+    moon run cmd/main -- --export-reg rebuilt.hive out.reg HKEY_CURRENT_USER
 
 ## 当前进度
 
@@ -68,7 +69,7 @@ moon.pkg 中导入：
 - [x] 值记录（vk）解析：类型码映射、inline 数据、值列表、big data 分段拼接、REG_SZ 与 REG_MULTI_SZ 解码
 - [x] 写入器：从键树生成 base block、hbin、nk/vk/lf 记录、值列表与数据 cell，自动计算校验和
 - [x] `.reg` 文本导入：REGEDIT4 / version 5.00、续行、dword、hex、hex(N) 形式
-- [ ] `.reg` 文本导出
+- [x] `.reg` 文本导出：`version 5.00` 头、dword / hex / hex(N) 渲染、名称转义、按根路径前缀生成节
 - [ ] 事务日志 .LOG1/.LOG2 重放
 
 ## 已知限制
@@ -76,6 +77,7 @@ moon.pkg 中导入：
 - 写入器只接受 ASCII 键名与值名，非 ASCII 名称返回 UnsupportedName。
 - 单个值最大 16344 字节，超过者返回 ValueTooLarge（尚未写 big data 分段）。
 - `.reg` 导入不支持 [-key] 删除段，遇到时返回 UnsupportedDelete。
+- `.reg` 导出输出 UTF-8 文本；导入端支持 UTF-16LE 与 UTF-8 两种输入。
 
 ## 许可
 
