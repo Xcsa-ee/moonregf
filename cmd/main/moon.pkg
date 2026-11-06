@@ -1,0 +1,7 @@
+import {
+  "Xcsa-ee/moonregf",
+  "moonbitlang/core/env",
+  "moonbitlang/x/fs",
+}
+
+pkgtype(kind: "executable")

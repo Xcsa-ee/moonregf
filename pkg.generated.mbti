@@ -1,0 +1,47 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "Xcsa-ee/moonregf"
+
+// Values
+pub fn decode_utf16le(Bytes, Int, Int) -> String
+
+pub fn parse_header(Bytes) -> Result[HiveHeader, RegfError]
+
+pub fn read_u32_le(Bytes, Int) -> UInt
+
+// Errors
+
+// Types and methods
+pub(all) enum HiveFileType {
+  Primary
+  Log
+  External
+  Unknown(UInt)
+}
+pub fn HiveFileType::label(Self) -> String
+
+pub(all) struct HiveHeader {
+  primary_sequence : UInt
+  secondary_sequence : UInt
+  last_written_high : UInt
+  last_written_low : UInt
+  major_version : UInt
+  minor_version : UInt
+  file_type : HiveFileType
+  file_format : UInt
+  root_cell_offset : UInt
+  hive_bins_data_size : UInt
+  clustering_factor : UInt
+  file_name : String
+  checksum : UInt
+}
+
+pub(all) enum RegfError {
+  TooShort(Int)
+  BadSignature(String)
+  BadChecksum(UInt, UInt)
+}
+pub fn RegfError::message(Self) -> String
+
+// Type aliases
+
+// Traits
