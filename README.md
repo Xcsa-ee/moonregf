@@ -61,6 +61,13 @@ moon.pkg 中导入：
     moon run cmd/main -- --import-reg backup.reg rebuilt.hive
     moon run cmd/main -- --export-reg rebuilt.hive out.reg HKEY_CURRENT_USER
 
+## 示例
+
+`examples/basic` 在内存里构造一个 hive，再读回并打印每个键与值，不需要任何输入文件：
+
+    moon run examples/basic
+
+
 ## 当前进度
 
 - [x] base block（4096 字节）解析：签名、主/次序列号、版本、文件类型、根 cell 偏移、hive bins 大小、UTF-16LE 文件名、XOR 校验和
@@ -70,6 +77,12 @@ moon.pkg 中导入：
 - [x] 写入器：从键树生成 base block、hbin、nk/vk/lf 记录、值列表与数据 cell，自动计算校验和
 - [x] `.reg` 文本导入：REGEDIT4 / version 5.00、续行、dword、hex、hex(N) 形式
 - [x] `.reg` 文本导出：`version 5.00` 头、dword / hex / hex(N) 渲染、名称转义、按根路径前缀生成节
+
+## 持续集成
+
+`.github/workflows/ci.yml` 在 Ubuntu 上安装 MoonBit 工具链并依次执行格式检查、检查、构建、
+wasm-gc 与 js 两个后端的测试，以及 `examples/basic`。
+
 - [ ] 事务日志 .LOG1/.LOG2 重放
 
 ## 已知限制
