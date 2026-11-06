@@ -15,6 +15,10 @@ pub(all) enum RegfError {
   BadKeyNode(Int32)
   // A cell is not a subkey list record.
   BadSubkeyList(Int32)
+  // A cell is not a value record.
+  BadValue(Int32)
+  // The data of a value cannot be resolved.
+  BadValueData(Int32)
 }
 
 ///|
@@ -37,5 +41,9 @@ pub fn RegfError::message(self : RegfError) -> String {
     BadKeyNode(offset) => "cell at " + offset.to_string() + " is not a key node"
     BadSubkeyList(offset) =>
       "cell at " + offset.to_string() + " is not a subkey list"
+    BadValue(offset) =>
+      "cell at " + offset.to_string() + " is not a value record"
+    BadValueData(offset) =>
+      "cell at " + offset.to_string() + " cannot hold the value data"
   }
 }

@@ -17,11 +17,10 @@ moon.pkg 中导入：
 
 ## 用法
 
-读取一个键及其子键：
+读取一个键的值：
 
-    let key = @moonregf.parse_key_node(bytes, header.root_cell_offset)
-    match key {
-      Ok(key) => println(key.name)
+    match @moonregf.list_values(bytes, key) {
+      Ok(values) => for value in values { println(value.name + " = " + value.data_type.label()) }
       Err(error) => println(error.message())
     }
 
@@ -31,9 +30,10 @@ moon.pkg 中导入：
       println(entry.path)
     }
 
-命令行查看文件头与键树：
+命令行查看文件头与键树，或导出全部值：
 
     moon run cmd/main -- <path-to-NTUSER.DAT>
+    moon run cmd/main -- <path-to-NTUSER.DAT> --values
 
 ## 当前进度
 
@@ -41,7 +41,7 @@ moon.pkg 中导入：
 - [x] cell 头解析：分配位、载荷长度、越界校验
 - [x] 键节点（nk）解析：flags、父键、子键数/列表偏移、值数/列表偏移、安全与类名偏移、压缩/UTF-16 名称
 - [x] 子键索引 lf / lh / li / ri（ri 递归展开）与键树遍历
-- [ ] value 数据读取（含 big data 分段）
+- [x] 值记录（vk）解析：类型码到 REG_* 名称映射、inline 数据、值列表、big data 分段拼接、REG_SZ 与 REG_MULTI_SZ 解码
 - [ ] 事务日志 .LOG1/.LOG2 重放
 - [ ] 写入器与 .reg 互换
 

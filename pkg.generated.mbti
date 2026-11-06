@@ -2,15 +2,43 @@
 package "Xcsa-ee/moonregf"
 
 // Values
+pub fn decode_single_byte(Bytes, Int, Int) -> String
+
 pub fn decode_utf16le(Bytes, Int, Int) -> String
+
+pub fn list_subkeys(Bytes, HiveKeyNode) -> Result[Array[HiveKeyNode], RegfError]
+
+pub fn list_values(Bytes, HiveKeyNode) -> Result[Array[HiveValue], RegfError]
 
 pub fn parse_header(Bytes) -> Result[HiveHeader, RegfError]
 
+pub fn parse_key_node(Bytes, UInt) -> Result[HiveKeyNode, RegfError]
+
+pub fn parse_value(Bytes, UInt) -> Result[HiveValue, RegfError]
+
+pub fn read_cell(Bytes, UInt) -> Result[HiveCell, RegfError]
+
+pub fn read_subkey_list(Bytes, UInt) -> Result[HiveSubkeyList, RegfError]
+
+pub fn read_u16_le(Bytes, Int) -> UInt
+
 pub fn read_u32_le(Bytes, Int) -> UInt
+
+pub fn read_value_list(Bytes, UInt) -> Result[Array[UInt], RegfError]
+
+pub fn value_offsets(Bytes, HiveKeyNode) -> Result[Array[UInt], RegfError]
+
+pub fn walk_key_tree(Bytes, UInt, Int) -> Array[HiveKeyEntry]
 
 // Errors
 
 // Types and methods
+pub(all) struct HiveCell {
+  offset : UInt
+  payload_size : Int
+  allocated : Bool
+}
+
 pub(all) enum HiveFileType {
   Primary
   Log
@@ -35,12 +63,92 @@ pub(all) struct HiveHeader {
   checksum : UInt
 }
 
+pub(all) struct HiveKeyEntry {
+  path : String
+  offset : UInt
+  subkey_count : Int
+  value_count : Int
+}
+
+pub(all) struct HiveKeyNode {
+  offset : UInt
+  flags : UInt
+  last_written_high : UInt
+  last_written_low : UInt
+  access_bits : UInt
+  parent_offset : UInt
+  subkey_count : UInt
+  volatile_subkey_count : UInt
+  subkey_list_offset : UInt
+  volatile_subkey_list_offset : UInt
+  value_count : UInt
+  value_list_offset : UInt
+  security_offset : UInt
+  class_name_offset : UInt
+  name_length : UInt
+  class_name_length : UInt
+  name : String
+}
+
+pub(all) struct HiveSubkeyList {
+  offset : UInt
+  kind : SubkeyListKind
+  count : Int
+  key_offsets : Array[UInt]
+}
+
+pub(all) struct HiveValue {
+  offset : UInt
+  name : String
+  data_type : HiveValueType
+  data_size : UInt
+  data_offset : UInt
+  inline_data : Bool
+  data : Bytes
+}
+pub fn HiveValue::as_multi_string(Self) -> Array[String]?
+pub fn HiveValue::as_string(Self) -> String?
+pub fn HiveValue::as_u32(Self) -> UInt?
+
+pub(all) enum HiveValueType {
+  Nil
+  Sz
+  ExpandSz
+  Binary
+  Dword
+  DwordBigEndian
+  Link
+  MultiSz
+  ResourceList
+  FullResourceDescriptor
+  ResourceRequirementsList
+  Qword
+  Unknown(UInt)
+}
+pub fn HiveValueType::from_code(UInt) -> Self
+pub fn HiveValueType::label(Self) -> String
+
 pub(all) enum RegfError {
   TooShort(Int)
   BadSignature(String)
   BadChecksum(UInt, UInt)
+  BadCellOffset(Int)
+  BadCellSize(Int)
+  BadKeyNode(Int)
+  BadSubkeyList(Int)
+  BadValue(Int)
+  BadValueData(Int)
 }
 pub fn RegfError::message(Self) -> String
+
+pub(all) enum SubkeyListKind {
+  FastLeaf
+  HashLeaf
+  IndexLeaf
+  RootIndex
+  Unknown(String)
+}
+pub fn SubkeyListKind::label(Self) -> String
 
 // Type aliases
 
