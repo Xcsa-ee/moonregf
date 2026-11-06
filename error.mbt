@@ -1,5 +1,5 @@
 ///|
-/// Errors reported while parsing a REGF hive file.
+/// Errors reported while parsing or building a REGF hive file.
 pub(all) enum RegfError {
   // The input is shorter than the 4096-byte base block.
   TooShort(Int32)
@@ -19,6 +19,10 @@ pub(all) enum RegfError {
   BadValue(Int32)
   // The data of a value cannot be resolved.
   BadValueData(Int32)
+  // A key name is not ASCII, which the writer does not support yet.
+  UnsupportedName(Int32)
+  // A value does not fit in a single data cell.
+  ValueTooLarge(Int32)
 }
 
 ///|
@@ -45,5 +49,13 @@ pub fn RegfError::message(self : RegfError) -> String {
       "cell at " + offset.to_string() + " is not a value record"
     BadValueData(offset) =>
       "cell at " + offset.to_string() + " cannot hold the value data"
+    UnsupportedName(index) =>
+      "key " +
+      index.to_string() +
+      " has a non-ASCII name, which build() does not support yet"
+    ValueTooLarge(size) =>
+      "value " +
+      size.to_string() +
+      " bytes cannot be stored in one data cell yet"
   }
 }

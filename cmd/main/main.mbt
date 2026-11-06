@@ -1,11 +1,41 @@
 ///|
-/// Prints the base block of a hive and either its key tree or every value.
+/// Prints the base block of a hive, its key tree, every value, or builds a demo hive.
 ///
 /// usage: moon run cmd/main -- <hive file> [--values]
+///        moon run cmd/main -- --build [output.hive]
 fn main {
   let args = @env.args()
   if args.length() < 2 {
     println("usage: moon run cmd/main -- <hive file> [--values]")
+    println("       moon run cmd/main -- --build [output.hive]")
+    return
+  }
+  if args[1] == "--build" {
+    let target = if args.length() >= 3 { args[2] } else { "demo.hive" }
+    let builder = @moonregf.HiveBuilder::new()
+    let software = builder.add_key(0, "Software")
+    let vendor = builder.add_key(software, "Vendor")
+    builder.set_string(software, "Install", "Hello moonregf")
+    builder.set_dword(software, "Count", 42)
+    builder.set_string(vendor, "Name", "Demo")
+    match builder.build() {
+      Ok(bytes) =>
+        try {
+          @fs.write_bytes_to_file(target, bytes)
+          println(
+            "wrote " +
+            target +
+            " (" +
+            bytes.length().to_string() +
+            " bytes, " +
+            builder.key_count().to_string() +
+            " keys)",
+          )
+        } catch {
+          @fs.IOError::IOError(message) => println("I/O error: " + message)
+        }
+      Err(error) => println("error: " + error.message())
+    }
     return
   }
   let path = args[1]
