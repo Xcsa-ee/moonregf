@@ -1,4 +1,14 @@
 ///|
+/// Reads a little-endian 16-bit unsigned integer at offset.
+///
+/// The caller must guarantee that offset + 2 is within bounds.
+pub fn read_u16_le(bytes : Bytes, offset : Int32) -> UInt32 {
+  let b0 = bytes[offset].to_uint()
+  let b1 = bytes[offset + 1].to_uint()
+  b0 | (b1 << 8)
+}
+
+///|
 /// Reads a little-endian 32-bit unsigned integer at offset.
 ///
 /// The caller must guarantee that offset + 4 is within bounds.

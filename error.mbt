@@ -7,6 +7,12 @@ pub(all) enum RegfError {
   BadSignature(String)
   // The stored base block checksum differs from the computed one.
   BadChecksum(UInt32, UInt32)
+  // A cell offset points outside the hive bins region.
+  BadCellOffset(Int32)
+  // A cell declares a size that does not fit the file.
+  BadCellSize(Int32)
+  // A cell is not a key node record.
+  BadKeyNode(Int32)
 }
 
 ///|
@@ -22,5 +28,10 @@ pub fn RegfError::message(self : RegfError) -> String {
       stored.to_string(radix=16) +
       " computed 0x" +
       computed.to_string(radix=16)
+    BadCellOffset(offset) =>
+      "cell offset " + offset.to_string() + " is outside the hive bins region"
+    BadCellSize(offset) =>
+      "cell at " + offset.to_string() + " has an invalid size"
+    BadKeyNode(offset) => "cell at " + offset.to_string() + " is not a key node"
   }
 }

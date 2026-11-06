@@ -1,5 +1,5 @@
 ///|
-/// Prints the base block of a registry hive file.
+/// Prints the base block and the root key of a registry hive file.
 fn main {
   let args = @env.args()
   if args.length() < 2 {
@@ -26,12 +26,18 @@ fn main {
           header.minor_version.to_string(),
         )
         println("file type  : " + header.file_type.label())
-        println("format     : " + header.file_format.to_string())
         println("root cell  : " + header.root_cell_offset.to_string())
         println("bins size  : " + header.hive_bins_data_size.to_string())
-        println("clustering : " + header.clustering_factor.to_string())
         println("name       : " + header.file_name)
         println("checksum   : 0x" + header.checksum.to_string(radix=16))
+        match @moonregf.parse_key_node(data, header.root_cell_offset) {
+          Ok(key) => {
+            println("root key   : " + key.name)
+            println("subkeys    : " + key.subkey_count.to_string())
+            println("values     : " + key.value_count.to_string())
+          }
+          Err(error) => println("root key   : error: " + error.message())
+        }
       }
       Err(error) => println("error: " + error.message())
     }

@@ -51,3 +51,17 @@ pub fn decode_utf16le(
   let encoded = Bytes::from_array(out)
   @utf8.decode_lossy(encoded.clamped_view(start=0, end=encoded.length()))
 }
+
+///|
+/// Decodes count single-byte characters starting at byte offset.
+///
+/// REGF stores compressed key names as one byte per character. Bytes are
+/// decoded as UTF-8 with replacement so ASCII names round-trip exactly and
+/// stray high bytes stay readable.
+pub fn decode_single_byte(
+  bytes : Bytes,
+  offset : Int32,
+  count : Int32,
+) -> String {
+  @utf8.decode_lossy(bytes.clamped_view(start=offset, end=offset + count))
+}
