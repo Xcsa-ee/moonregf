@@ -283,7 +283,19 @@ pub fn value_offsets(
   if key.value_list_offset.reinterpret_as_int() == -1 {
     return Ok(offsets)
   }
-  read_value_list(bytes, key.value_list_offset)
+  match read_value_list(bytes, key.value_list_offset) {
+    Err(error) => Err(error)
+    Ok(all) => {
+      // The nk value count is authoritative: the list cell is 8-byte aligned, so a stale tail can hold extra offsets.
+      let limited : Array[UInt32] = []
+      let mut index = 0
+      while index < count && index < all.length() {
+        limited.push(all[index])
+        index = index + 1
+      }
+      Ok(limited)
+    }
+  }
 }
 
 ///|

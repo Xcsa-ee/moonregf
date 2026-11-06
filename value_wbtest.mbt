@@ -342,3 +342,13 @@ test "maps type codes to registry type names" {
   assert_eq(HiveValueType::from_code(11).label(), "REG_QWORD")
   assert_eq(HiveValueType::from_code(99).label(), "REG_UNKNOWN(0x63)")
 }
+
+///|
+test "ignores stale offsets beyond the value count" {
+  let bytes : Array[Byte] = Bytes::new(hive_bins_base * 2).to_array()
+  w_nk(bytes, 0x20, "ROOT", 1, 0x80)
+  w_value_list(bytes, 0x80, [0x100, 0x140])
+  w_vk(bytes, 0x100, "First", 4, -2147483644, 7)
+  w_vk(bytes, 0x140, "Stale", 4, -2147483644, 9)
+  assert_eq(w_value_names(Bytes::from_array(bytes), 0x20), "First")
+}
