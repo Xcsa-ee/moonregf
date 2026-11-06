@@ -13,6 +13,8 @@ pub(all) enum RegfError {
   BadCellSize(Int32)
   // A cell is not a key node record.
   BadKeyNode(Int32)
+  // A cell is not a subkey list record.
+  BadSubkeyList(Int32)
 }
 
 ///|
@@ -33,5 +35,7 @@ pub fn RegfError::message(self : RegfError) -> String {
     BadCellSize(offset) =>
       "cell at " + offset.to_string() + " has an invalid size"
     BadKeyNode(offset) => "cell at " + offset.to_string() + " is not a key node"
+    BadSubkeyList(offset) =>
+      "cell at " + offset.to_string() + " is not a subkey list"
   }
 }
