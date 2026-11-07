@@ -69,6 +69,10 @@ moon.pkg 中导入：
     moon run examples/basic
 
 
+## 演示视频
+
+[docs/demo.mp4](docs/demo.mp4) 用真实命令演示：两个后端的门禁与测试、解析本机 hive、遍历键树、值导出并与独立解析器对拍、生成 hive 后由独立解析器读回、`.reg` 往返、事务日志重放。
+
 ## 当前进度
 
 - [x] base block（4096 字节）解析：签名、主/次序列号、版本、文件类型、根 cell 偏移、hive bins 大小、UTF-16LE 文件名、XOR 校验和
