@@ -94,15 +94,24 @@ moon.pkg 中导入：
 
 实现依据、关键判断与对拍方式见 [DESIGN.md](DESIGN.md)。格式按公开说明实现，未移植上游源码；`reg.exe` 与 regipy 只在本机作为独立解析器对拍，不进入仓库、不作为运行依赖。
 
-## 当前进度
+## 记录支持矩阵
 
-- [x] base block（4096 字节）解析：签名、主/次序列号、版本、文件类型、根 cell 偏移、hive bins 大小、UTF-16LE 文件名、XOR 校验和
-- [x] cell 头解析与键节点（nk）解析
-- [x] 子键索引 lf / lh / li / ri（ri 递归展开）与键树遍历
-- [x] 值记录（vk）解析：类型码映射、inline 数据、值列表、big data 分段拼接、REG_SZ 与 REG_MULTI_SZ 解码
-- [x] 写入器：从键树生成 base block、hbin、nk/vk/lf 记录、值列表与数据 cell，自动计算校验和
-- [x] `.reg` 文本导入：REGEDIT4 / version 5.00、续行、dword、hex、hex(N) 形式
-- [x] `.reg` 文本导出：`version 5.00` 头、dword / hex / hex(N) 渲染、名称转义、按根路径前缀生成节
+按 REGF 的结构逐项列出读写状态。写不了的地方返回明确错误，不静默截断或丢弃。
+
+| 结构 | 读取 | 写入 | 说明 |
+| --- | --- | --- | --- |
+| base block | 是 | 是 | 校验和按前 508 字节逐 u32 异或重算 |
+| hbin / cell | 是 | 是 | cell 长度含 4 字节头，按 8 字节对齐 |
+| nk 键节点 | 是 | 是 | 读取支持压缩与 UTF-16 名称；写入只支持 ASCII 名称 |
+| lf / lh / li | 是 | 部分是 | 写入器只生成 lf |
+| ri 根索引 | 是 | 否 | 读取时递归展开到叶子索引 |
+| vk 值记录 | 是 | 是 | 类型码 1 / 2 / 3 / 4 / 7 / 11 已映射 |
+| 内联数据 | 是 | 是 | 数据不超过 4 字节时直接存在 vk 里 |
+| big data（db） | 是 | 否 | 读取按段拼接；写入单值上限 16344 字节 |
+| sk 安全描述符 | 否 | 否 | 只保留偏移，不解析 ACL |
+| .reg 文本 | 是 | 是 | 导入支持 REGEDIT4 与 version 5.00；导出固定 version 5.00 |
+| .reg 删除段 | 否 | 否 | 遇到 [-key] 返回 UnsupportedDelete |
+| HvLE 事务日志 | 是 | 否 | 只解析 8.1 及更新版本；写入与生成日志不在范围内 |
 
 ## 持续集成
 
@@ -120,6 +129,19 @@ moon.pkg 中导入：
 - `.reg` 导入不支持 [-key] 删除段，遇到时返回 UnsupportedDelete。
 - 事务日志只解析 Windows 8.1 及更新版本的 HvLE 格式；更早的 512 字节头格式返回 UnsupportedLogVersion。
 - `.reg` 导出输出 UTF-8 文本；导入端支持 UTF-16LE 与 UTF-8 两种输入。
+
+## 数据与隐私
+
+hive 通常含用户名、路径、产品密钥等信息，属于个人数据。因此：
+
+- 库本身不发网络请求，不写日志文件，不读取文件路径之外的上下文。
+- CLI 只把解析结果打印到标准输出，不缓存、不上传。
+- 仓库的忽略规则默认挡住 *.hive、*.LOG1、*.LOG2、*.reg，只有 examples/*.reg 例外；对拍用的真实 hive 一律留在仓库外。
+
+## 开发与提交约定
+
+提交标题按改动所在的层加方括号前缀（hdr / cell / nk / lf / vk / big / log / reg / build / cli / ci / docs / repo），
+夹具再生步骤与本地门禁命令写在 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ## 许可
 
