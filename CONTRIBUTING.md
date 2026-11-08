@@ -26,6 +26,8 @@
 | docs | README、DESIGN、本文件 |
 | repo | 忽略规则、hooks、仓库设置 |
 
+层前缀与文件对应：`hdr` 是 `regf_base_block.mbt`、`cell` 是 `regf_hbin.mbt`、`nk` 是 `regf_nk.mbt`、`lf` 是 `regf_subkey_index.mbt`、`vk` 是 `regf_vk.mbt`、`big` 在 `regf_vk.mbt` 与 `regf_builder.mbt`、`log` 是 `regf_hvle.mbt`、`reg` 是 `regt_*.mbt`、`build` 是 `regf_builder.mbt`。
+
 一次提交只动一层，跨层改动拆开；标题不超过 50 个字；正文写清为什么改、怎么验证。
 
 ## 本地门禁

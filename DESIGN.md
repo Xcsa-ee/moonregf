@@ -6,16 +6,16 @@ moonregf 是纯 MoonBit 实现的 Windows 注册表 hive 文件（REGF）读取�
 
 | 文件 | 职责 |
 | --- | --- |
-| `le.mbt` | 小端 16 / 32 位读取 |
-| `header.mbt` | 4096 字节 base block：签名、序列号、版本、文件类型、根 cell、bins 大小、UTF-16LE 文件名、XOR 校验和 |
-| `cell.mbt` | cell 头：分配位、载荷长度、越界校验 |
-| `key.mbt` | 键节点（nk）：flags、父键、子键数与列表、值数与列表、类名、压缩与 UTF-16 名称 |
-| `subkey.mbt` | 子键索引 lf / lh / li / ri（ri 递归展开）与键树遍历 |
-| `value.mbt` | 值记录（vk）、值列表、inline 数据、big data 分段、类型映射与访问器 |
-| `log.mbt` | 事务日志（`.LOG1` / `.LOG2`）HvLE 条目解析与脏页重放 |
-| `writer.mbt` | `HiveBuilder`：从键树生成 base block、hbin、nk / vk / lf、值列表与数据 cell |
-| `reg_text.mbt` `reg_parse.mbt` `reg_export.mbt` | `.reg` 文本的 UTF-16LE 编码、解析与渲染 |
-| `error.mbt` | 统一的错误类型与消息 |
+| `bin_le.mbt` | 小端 16 / 32 位读取 |
+| `regf_base_block.mbt` | 4096 字节 base block：签名、序列号、版本、文件类型、根 cell、bins 大小、UTF-16LE 文件名、XOR 校验和 |
+| `regf_hbin.mbt` | cell 头：分配位、载荷长度、越界校验 |
+| `regf_nk.mbt` | 键节点（nk）：flags、父键、子键数与列表、值数与列表、类名、压缩与 UTF-16 名称 |
+| `regf_subkey_index.mbt` | 子键索引 lf / lh / li / ri（ri 递归展开）与键树遍历 |
+| `regf_vk.mbt` | 值记录（vk）、值列表、inline 数据、big data 分段、类型映射与访问器 |
+| `regf_hvle.mbt` | 事务日志（`.LOG1` / `.LOG2`）HvLE 条目解析与脏页重放 |
+| `regf_builder.mbt` | `HiveBuilder`：从键树生成 base block、hbin、nk / vk / lf、值列表与数据 cell |
+| `regt_encode.mbt` `regt_parse.mbt` `regt_emit.mbt` | `.reg` 文本的 UTF-16LE 编码、解析与渲染 |
+| `regf_error.mbt` | 统一的错误类型与消息 |
 | `cmd/main` | 命令行：查看文件头与键树、导出值、生成 hive、`.reg` 导入导出、日志重放 |
 | `examples/basic` | 不需要输入文件的最小可运行示例 |
 
@@ -117,3 +117,26 @@ moonregf 是纯 MoonBit 实现的 Windows 注册表 hive 文件（REGF）读取�
 | 0x10 | 4 | 对应 hive 的 bins 数据长度 |
 | 0x14 | 4 | 脏页数 |
 | 0x28 | 8 x n | 每条脏页引用：相对 bins 起点的偏移 + 长度 |
+
+
+## 源码布局
+
+前缀说明：`regf_` 是 hive 二进制侧（一条记录一个文件），`regt_` 是 .reg 文本侧，`bin_` 是与格式无关的字节与编码工具。
+
+| 文件 | 对应结构 | 偏移口径 |
+| --- | --- | --- |
+| `bin_le.mbt` | 小端 u16 / u32 读取 | 无 |
+| `bin_utf16.mbt` | UTF-16LE 与单字节名称解码 | 无 |
+| `regf_error.mbt` | 错误类型与消息 | 无 |
+| `regf_base_block.mbt` | base block | 本文件 base block 表 |
+| `regf_hbin.mbt` | hbin 与 cell 头 | hbin 与 cell 头表 |
+| `regf_nk.mbt` | nk 键节点 | nk 表 |
+| `regf_subkey_index.mbt` | lf / lh / li / ri | 子键索引与大数据段表 |
+| `regf_vk.mbt` | vk 值记录 | vk 表 |
+| `regf_hvle.mbt` | HvLE 事务日志 | HvLE 表 |
+| `regf_builder.mbt` | 写入器 | 由上面各表共同约束 |
+| `regt_encode.mbt` | .reg 的 UTF-16LE 编码 | 无 |
+| `regt_parse.mbt` | .reg 解析 | 无 |
+| `regt_emit.mbt` | .reg 渲染 | 无 |
+| `cmd/main` | 命令行 | 无 |
+| `examples/basic` | 最小示例 | 无 |
