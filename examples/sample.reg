@@ -1,0 +1,9 @@
+Windows Registry Editor Version 5.00
+
+[HKEY_CURRENT_USER\Software\MoonBit\regf]
+"Count"=dword:0000002a
+"Path"=hex(2):25,00,54,00,45,00,4d,00,50,00,25,00,00,00
+"Note"="hive fixture built from .reg text"
+
+[HKEY_CURRENT_USER\Software\MoonBit\regf\Nested]
+"Flag"=hex:01,02,03,04,05
