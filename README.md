@@ -106,10 +106,12 @@ moon.pkg 中导入：
 
 ## 持续集成
 
-`.github/workflows/ci.yml` 在 Ubuntu 上安装 MoonBit 工具链并依次执行格式检查、检查、构建、
-wasm-gc 与 js 两个后端的测试，以及 `examples/basic`。
+`.github/workflows/regf.yml` 拆成三个作业，红了能一眼看出是哪一层出问题：
 
-- [x] 事务日志 `.LOG1/.LOG2` 重放：解析 Windows 8.1+ 的 HvLE 条目（条目大小、序列号、脏页数、页引用），按存储顺序应用脏页并更新 base block 序列号与校验和，陈旧日志不动作
+1. **字节布局**：`moon fmt --check` + `moon check --target wasm-gc --deny-warn`，再 `moon build`。
+2. **解析器测试**：`wasm-gc` 与 `js` 两个后端的矩阵，各自跑 `moon test --deny-warn`。
+3. **写出的 hive 必须能被读回**：先用 `--build` 生成 hive，再用本库自己的 CLI 读回，断言键数 3、值数 3、校验和存在；
+   再把 `examples/sample.reg` 导入成 hive 并导出回文本，断言 `dword:0000002a`、`hex(2)` 与嵌套键都在。
 
 ## 已知限制
 

@@ -1,21 +1,9 @@
-# Git Hooks
+# 提交前门禁
 
-## Pre-commit Hook
+启用一次即可：
 
-This pre-commit hook performs automatic checks before finalizing your commit.
+    git config core.hooksPath .githooks
 
-### Usage Instructions
-
-To use this pre-commit hook:
-
-1. Make the hook executable if it isn't already:
-   ```bash
-   chmod +x .githooks/pre-commit
-   ```
-
-2. Configure Git to use the hooks in the .githooks directory:
-   ```bash
-   git config core.hooksPath .githooks
-   ```
-
-3. The hook will automatically run when you execute `git commit`
+`pre-commit` 只跑 `moon fmt --check` 与 `moon check --target wasm-gc --deny-warn`。
+REGF 的 cell 大小按 8 字节对齐，任何一处算错都会让后续偏移整体移位而不是直接报错；
+这两道检查能在几秒内拦住大部分这类改动，测试留到 `moon test` 与 CI。

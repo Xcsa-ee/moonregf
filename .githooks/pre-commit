@@ -1,3 +1,6 @@
 #!/bin/sh
-
-moon check
+# REGF 的偏移是一层层乘出来的：cell 头少算 4 字节，后面每个 nk / vk 都会整体移位，
+# 而且不会崩，只会读出错误的值。所以提交前固定跑这两道最便宜的检查。
+set -eu
+moon fmt --check
+moon check --target wasm-gc --deny-warn
