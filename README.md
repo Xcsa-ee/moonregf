@@ -76,6 +76,8 @@ moon.pkg 中导入：
     moon run cmd/main -- demo.hive
     moon run cmd/main -- demo.hive --values
 
+在 `C:\Users\Default\NTUSER.DAT`（262,144 B）上实测：`walk_key_tree(data, header.root_cell_offset, 64)` 全深度遍历得 634 个键，`list_values` 汇总 1,065 个值；同一份 hive 用 regipy 6.5.0 逐条比对，路径与值名的对称差为 0（2026-11-08，在全新工程 `moon add Xcsa-ee/moonregf@0.2.0` 内运行；CLI 默认只列 depth 3 的键）。
+
 
 ## 示例
 
