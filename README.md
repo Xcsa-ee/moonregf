@@ -32,6 +32,8 @@ moon.pkg 中导入：
       Err(error) => println(error.message())
     }
 
+想先看清楚这些字节长什么样，见 [docs/byte-walkthrough.md](docs/byte-walkthrough.md)：一个 8 KiB hive 的 base block、hbin 头与根 cell 的真实十六进制，逐字段对照偏移。
+
 ## 写入
 
     let builder = @moonregf.HiveBuilder::new()
