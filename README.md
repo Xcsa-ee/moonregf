@@ -62,6 +62,21 @@ moon.pkg 中导入：
     moon run cmd/main -- --export-reg rebuilt.hive out.reg HKEY_CURRENT_USER
     moon run cmd/main -- --replay-log dirty.hive dirty.hive.LOG1 clean.hive
 
+## 读一个真实 hive 的可复现路径
+
+登录会话里 `%USERPROFILE%\NTUSER.DAT` 正被系统独占，直接读会失败：
+
+    I/O error: Failed to read file C:\Users\<你>\NTUSER.DAT: 另一个程序正在使用此文件，进程无法访问。 (os error 32)
+
+先取一份可读的 hive，任选其一：`reg save HKCU\Software software.hive /y`（需备份权限，非管理员会报 `A required privilege is not held by the client`）；从离线镜像或卷影副本复制；或读他人导出的 `.reg`、用构造器生成的 hive。
+
+不依赖任何外部文件的最小演示（第一条会在当前目录生成 `demo.hive`）：
+
+    moon run cmd/main -- --build demo.hive
+    moon run cmd/main -- demo.hive
+    moon run cmd/main -- demo.hive --values
+
+
 ## 示例
 
 `examples/basic` 在内存里构造一个 hive，再读回并打印每个键与值，不需要任何输入文件：
