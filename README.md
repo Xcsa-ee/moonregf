@@ -104,12 +104,12 @@ moon.pkg 中导入：
 | --- | --- | --- | --- |
 | base block | 是 | 是 | 校验和按前 508 字节逐 u32 异或重算 |
 | hbin / cell | 是 | 是 | cell 长度含 4 字节头，按 8 字节对齐 |
-| nk 键节点 | 是 | 是 | 读取支持压缩与 UTF-16 名称；写入只支持 ASCII 名称 |
-| lf / lh / li | 是 | 部分是 | 写入器只生成 lf |
-| ri 根索引 | 是 | 否 | 读取时递归展开到叶子索引 |
+| nk 键节点 | 是 | 是 | 读取支持压缩与 UTF-16 名称；写入按名称自动选压缩或 UTF-16LE |
+| lf / lh / li | 是 | 是 | 按子键数与名称编码自动选择，也可显式指定 |
+| ri 根索引 | 是 | 是 | 子键超过 500 个时自动生成，每片 500 项 |
 | vk 值记录 | 是 | 是 | 类型码 1 / 2 / 3 / 4 / 7 / 11 已映射 |
 | 内联数据 | 是 | 是 | 数据不超过 4 字节时直接存在 vk 里 |
-| big data（db） | 是 | 否 | 读取按段拼接；写入单值上限 16344 字节 |
+| big data（db） | 是 | 是 | 读取按段拼接；写入按 16344 字节分段 |
 | sk 安全描述符 | 否 | 否 | 只保留偏移，不解析 ACL |
 | .reg 文本 | 是 | 是 | 导入支持 REGEDIT4 与 version 5.00；导出固定 version 5.00 |
 | .reg 删除段 | 否 | 否 | 遇到 [-key] 返回 UnsupportedDelete |
@@ -126,8 +126,7 @@ moon.pkg 中导入：
 
 ## 已知限制
 
-- 写入器只接受 ASCII 键名与值名，非 ASCII 名称返回 UnsupportedName。
-- 单个值最大 16344 字节，超过者返回 ValueTooLarge（尚未写 big data 分段）。
+- sk 安全描述符只保留偏移，不解析 ACL；写入器暂不生成 sk 记录。
 - `.reg` 导入不支持 [-key] 删除段，遇到时返回 UnsupportedDelete。
 - 事务日志只解析 Windows 8.1 及更新版本的 HvLE 格式；更早的 512 字节头格式返回 UnsupportedLogVersion。
 - `.reg` 导出输出 UTF-8 文本；导入端支持 UTF-16LE 与 UTF-8 两种输入。

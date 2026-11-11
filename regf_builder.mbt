@@ -3,6 +3,32 @@
 let max_value_size : Int32 = 16344
 
 ///|
+/// Largest number of children one leaf index holds before it is split.
+let max_leaf_entries : Int32 = 500
+
+///|
+/// How the writer serializes a key subkey index.
+pub(all) enum IndexKind {
+  Auto
+  FastLeaf
+  HashLeaf
+  IndexLeaf
+  RootIndex
+}
+
+///|
+/// Numeric writer code for an index kind: -1 auto, 1 lf, 2 lh, 3 li, 4 ri.
+fn index_kind_code(kind : IndexKind) -> Int32 {
+  match kind {
+    Auto => -1
+    FastLeaf => 1
+    HashLeaf => 2
+    IndexLeaf => 3
+    RootIndex => 4
+  }
+}
+
+///|
 /// A value waiting to be written into a hive.
 struct BuildValue {
   name : String
@@ -19,6 +45,13 @@ pub struct HiveBuilder {
   parents : Array[Int32]
   children : Array[Array[Int32]]
   values : Array[Array[BuildValue]]
+  kinds : Array[Int32]
+}
+
+///|
+/// Number of segments a big value of length bytes needs.
+fn big_segment_count(length : Int32) -> Int32 {
+  (length + max_value_size - 1) / max_value_size
 }
 
 ///|
@@ -65,17 +98,6 @@ fn w_bytes(bytes : Array[Byte], offset : Int32, source : Bytes) -> Unit {
 }
 
 ///|
-/// Writes ASCII bytes as UTF-16LE code units.
-fn w_utf16le_ascii(bytes : Array[Byte], offset : Int32, source : Bytes) -> Unit {
-  let mut index = 0
-  while index < source.length() {
-    bytes[offset + index * 2] = source[index]
-    bytes[offset + index * 2 + 1] = (0).to_byte()
-    index = index + 1
-  }
-}
-
-///|
 /// True when every byte is ASCII.
 fn is_ascii(bytes : Bytes) -> Bool {
   let mut index = 0
@@ -86,6 +108,28 @@ fn is_ascii(bytes : Bytes) -> Bool {
     index = index + 1
   }
   true
+}
+
+///|
+/// A name encoded the way the hive stores it: ASCII stays one byte per
+/// character, any other script becomes UTF-16LE.
+priv struct EncodedName {
+  bytes : Bytes
+  compressed : Bool
+}
+
+///|
+/// Encodes a name for storage, keeping ASCII compressed and everything else in
+/// UTF-16LE so CJK and other scripts survive the round trip.
+fn encode_name(text : String) -> EncodedName {
+  let raw = @utf8.encode(text)
+  if is_ascii(raw) {
+    let out : EncodedName = { bytes: raw, compressed: true, }
+    out
+  } else {
+    let out : EncodedName = { bytes: encode_utf16le(text), compressed: false, }
+    out
+  }
 }
 
 ///|
@@ -133,6 +177,57 @@ fn name_hint(name : Bytes) -> Int32 {
 }
 
 ///|
+/// Hash Windows stores beside each entry of an lh list: 37 times the running
+/// value plus the upper cased code unit, wrapping at 32 bits.
+fn lh_hash(name : Bytes, compressed : Bool) -> Int32 {
+  let mut hash = 0
+  let mut index = 0
+  if compressed {
+    while index < name.length() {
+      let mut byte = name[index].to_int()
+      if byte >= 0x61 && byte <= 0x7A {
+        byte = byte - 0x20
+      }
+      hash = hash * 37 + byte
+      index = index + 1
+    }
+  } else {
+    while index + 1 < name.length() {
+      let mut unit = name[index].to_int() | (name[index + 1].to_int() << 8)
+      if unit >= 0x61 && unit <= 0x7A {
+        unit = unit - 0x20
+      }
+      hash = hash * 37 + unit
+      index = index + 2
+    }
+  }
+  hash
+}
+
+///|
+/// Picks the serialized index for a key: 0 none, 1 lf, 2 lh, 3 li, 4 ri.
+fn choose_index_kind(
+  requested : Int32,
+  child_count : Int32,
+  all_compressed : Bool,
+) -> Int32 {
+  if child_count == 0 {
+    return 0
+  }
+  if requested >= 1 && requested <= 4 {
+    return requested
+  }
+  if child_count > max_leaf_entries {
+    return 4
+  }
+  if all_compressed {
+    1
+  } else {
+    2
+  }
+}
+
+///|
 /// Numeric type code stored in a vk record.
 fn value_type_code(data_type : HiveValueType) -> Int32 {
   match data_type {
@@ -154,11 +249,11 @@ fn value_type_code(data_type : HiveValueType) -> Int32 {
 
 ///|
 /// Longest key name among the given children.
-fn longest_child_name(names : Array[String], children : Array[Int32]) -> Int32 {
+fn longest_child_name(names : Array[Bytes], children : Array[Int32]) -> Int32 {
   let mut longest = 0
   let mut index = 0
   while index < children.length() {
-    let length = @utf8.encode(names[children[index]]).length()
+    let length = names[children[index]].length()
     if length > longest {
       longest = length
     }
@@ -210,7 +305,8 @@ pub fn HiveBuilder::new_named(root_name : String) -> HiveBuilder {
   children.push([])
   let values : Array[Array[BuildValue]] = []
   values.push([])
-  { names, parents, children, values, }
+  let kinds : Array[Int32] = [-1]
+  { names, parents, children, values, kinds, }
 }
 
 ///|
@@ -231,6 +327,7 @@ pub fn HiveBuilder::add_key(
   self.parents.push(parent)
   self.children.push([])
   self.values.push([])
+  self.kinds.push(-1)
   self.children[parent].push(index)
   index
 }
@@ -256,7 +353,7 @@ pub fn HiveBuilder::set_string(
   name : String,
   text : String,
 ) -> Unit {
-  let encoded = @utf8.encode(text)
+  let encoded = encode_utf16le(text)
   let terminated : Array[Byte] = []
   let mut cursor = 0
   while cursor < encoded.length() {
@@ -285,6 +382,16 @@ pub fn HiveBuilder::set_dword(
 }
 
 ///|
+/// Forces the index kind of one key instead of letting build() choose.
+pub fn HiveBuilder::set_index_kind(
+  self : HiveBuilder,
+  key_index : Int32,
+  kind : IndexKind,
+) -> Unit {
+  self.kinds[key_index] = index_kind_code(kind)
+}
+
+///|
 /// Serializes the tree into a REGF hive file.
 ///
 /// The layout is the one Windows uses: a 4096-byte base block, then one or
@@ -293,43 +400,65 @@ pub fn HiveBuilder::set_dword(
 pub fn HiveBuilder::build(self : HiveBuilder) -> Result[Bytes, RegfError] {
   let count = self.names.length()
   let names : Array[Bytes] = []
+  let name_flags : Array[Bool] = []
   let mut index = 0
   while index < count {
-    let encoded = @utf8.encode(self.names[index])
-    if !is_ascii(encoded) {
-      return Err(UnsupportedName(index))
-    }
-    names.push(encoded)
+    let encoded = encode_name(self.names[index])
+    names.push(encoded.bytes)
+    name_flags.push(encoded.compressed)
     index = index + 1
   }
   let value_names : Array[Array[Bytes]] = []
+  let value_flags : Array[Array[Bool]] = []
   index = 0
   while index < count {
     let per_key : Array[Bytes] = []
+    let per_flag : Array[Bool] = []
     let mut inner = 0
     while inner < self.values[index].length() {
-      let encoded = @utf8.encode(self.values[index][inner].name)
-      if !is_ascii(encoded) {
-        return Err(UnsupportedName(index))
-      }
-      if self.values[index][inner].data.length() > max_value_size {
-        return Err(ValueTooLarge(self.values[index][inner].data.length()))
-      }
-      per_key.push(encoded)
+      let encoded = encode_name(self.values[index][inner].name)
+      per_key.push(encoded.bytes)
+      per_flag.push(encoded.compressed)
       inner = inner + 1
     }
     value_names.push(per_key)
+    value_flags.push(per_flag)
     index = index + 1
   }
   let nk_offsets = zero_ints(count)
   let value_list_offsets = zero_ints(count)
   let subkey_list_offsets = zero_ints(count)
+  let subkey_kinds = zero_ints(count)
+  let chunk_offsets : Array[Array[Int32]] = []
   let vk_offsets : Array[Array[Int32]] = []
   let data_offsets : Array[Array[Int32]] = []
+  let db_offsets : Array[Array[Int32]] = []
+  let segment_offsets : Array[Array[Array[Int32]]] = []
   index = 0
   while index < count {
     vk_offsets.push([])
     data_offsets.push([])
+    db_offsets.push([])
+    segment_offsets.push([])
+    chunk_offsets.push([])
+    index = index + 1
+  }
+  index = 0
+  while index < count {
+    let child_count = self.children[index].length()
+    let mut all_compressed = true
+    let mut probe = 0
+    while probe < child_count {
+      if !name_flags[self.children[index][probe]] {
+        all_compressed = false
+      }
+      probe = probe + 1
+    }
+    subkey_kinds[index] = choose_index_kind(
+      self.kinds[index],
+      child_count,
+      all_compressed,
+    )
     index = index + 1
   }
   let mut cursor = 32
@@ -349,18 +478,59 @@ pub fn HiveBuilder::build(self : HiveBuilder) -> Result[Bytes, RegfError] {
       vk_offsets[index].push(cursor)
       cursor = cursor + cell_size(20 + value_names[index][inner].length())
       let length = self.values[index][inner].data.length()
-      if length > 4 {
+      if length > max_value_size {
+        let segments = big_segment_count(length)
+        data_offsets[index].push(-1)
+        db_offsets[index].push(cursor)
+        cursor = cursor + cell_size(4 + 4 * segments)
+        let offsets : Array[Int32] = []
+        let mut segment = 0
+        while segment < segments {
+          offsets.push(cursor)
+          let remaining = length - segment * max_value_size
+          let size = if remaining > max_value_size {
+            max_value_size
+          } else {
+            remaining
+          }
+          cursor = cursor + cell_size(size)
+          segment = segment + 1
+        }
+        segment_offsets[index].push(offsets)
+      } else if length > 4 {
         data_offsets[index].push(cursor)
+        db_offsets[index].push(-1)
+        segment_offsets[index].push([])
         cursor = cursor + cell_size(length)
       } else {
         data_offsets[index].push(-1)
+        db_offsets[index].push(-1)
+        segment_offsets[index].push([])
       }
       inner = inner + 1
     }
     let child_count = self.children[index].length()
     if child_count > 0 {
-      subkey_list_offsets[index] = cursor
-      cursor = cursor + cell_size(4 + 8 * child_count)
+      if subkey_kinds[index] == 4 {
+        subkey_list_offsets[index] = cursor
+        let chunks = (child_count + max_leaf_entries - 1) / max_leaf_entries
+        cursor = cursor + cell_size(4 + 4 * chunks)
+        let mut chunk = 0
+        while chunk < chunks {
+          chunk_offsets[index].push(cursor)
+          let start = chunk * max_leaf_entries
+          let mut stop = start + max_leaf_entries
+          if stop > child_count {
+            stop = child_count
+          }
+          cursor = cursor + cell_size(4 + 8 * (stop - start))
+          chunk = chunk + 1
+        }
+      } else {
+        let entry_size = if subkey_kinds[index] == 3 { 4 } else { 8 }
+        subkey_list_offsets[index] = cursor
+        cursor = cursor + cell_size(4 + entry_size * child_count)
+      }
     } else {
       subkey_list_offsets[index] = -1
     }
@@ -378,12 +548,13 @@ pub fn HiveBuilder::build(self : HiveBuilder) -> Result[Bytes, RegfError] {
   w_i32(file, 0x24, nk_offsets[0])
   w_i32(file, 0x28, bin_size)
   w_i32(file, 0x2C, 1)
-  let label = if names[0].length() > 32 {
-    @utf8.encode("hive")
-  } else {
-    names[0]
+  let label = encode_utf16le(self.names[0])
+  let mut unit = 0
+  while unit < 32 && unit * 2 + 1 < label.length() {
+    file[0x30 + unit * 2] = label[unit * 2]
+    file[0x30 + unit * 2 + 1] = label[unit * 2 + 1]
+    unit = unit + 1
   }
-  w_utf16le_ascii(file, 0x30, label)
   let checksum = array_checksum(file)
   w_i32(file, 0x1FC, checksum.reinterpret_as_int())
   w_i32(file, base_block_size, 0x6E696268)
@@ -397,7 +568,13 @@ pub fn HiveBuilder::build(self : HiveBuilder) -> Result[Bytes, RegfError] {
     w_i32(file, base_block_size + offset, -total)
     let head = base_block_size + offset + 4
     w_u16(file, head, 0x6B6E)
-    let flags = if index == 0 { 0x2C } else { 0x20 }
+    let mut flags = 0
+    if name_flags[index] {
+      flags = 0x20
+    }
+    if index == 0 {
+      flags = flags | 0x0C
+    }
     w_u16(file, head + 2, flags)
     let parent = if index == 0 { -1 } else { nk_offsets[self.parents[index]] }
     w_i32(file, head + 16, parent)
@@ -409,7 +586,7 @@ pub fn HiveBuilder::build(self : HiveBuilder) -> Result[Bytes, RegfError] {
     w_i32(file, head + 40, value_list_offsets[index])
     w_i32(file, head + 44, -1)
     w_i32(file, head + 48, -1)
-    w_i32(file, head + 52, longest_child_name(self.names, self.children[index]))
+    w_i32(file, head + 52, longest_child_name(names, self.children[index]))
     w_i32(file, head + 56, 0)
     w_i32(file, head + 60, longest_value_name(value_names[index]))
     w_i32(file, head + 64, largest_value_size(self.values[index]))
@@ -451,15 +628,48 @@ pub fn HiveBuilder::build(self : HiveBuilder) -> Result[Bytes, RegfError] {
           byte = byte + 1
         }
         w_i32(file, vk_head + 8, packed)
+      } else if length > max_value_size {
+        w_i32(file, vk_head + 4, length)
+        w_i32(file, vk_head + 8, db_offsets[index][inner])
       } else {
         w_i32(file, vk_head + 4, length)
         w_i32(file, vk_head + 8, data_offsets[index][inner])
       }
       w_i32(file, vk_head + 12, value_type_code(value.data_type))
-      w_u16(file, vk_head + 16, 0x0001)
+      let name_flag = if value_flags[index][inner] { 1 } else { 0 }
+      w_u16(file, vk_head + 16, name_flag)
       w_u16(file, vk_head + 18, 0)
       w_bytes(file, vk_head + 20, value_name)
-      if length > 4 {
+      if length > max_value_size {
+        let segments = big_segment_count(length)
+        let db_offset = db_offsets[index][inner]
+        let db_total = cell_size(4 + 4 * segments)
+        w_i32(file, base_block_size + db_offset, -db_total)
+        let db_head = base_block_size + db_offset + 4
+        w_u16(file, db_head, 0x6264)
+        w_u16(file, db_head + 2, segments)
+        let mut segment = 0
+        while segment < segments {
+          let target = segment_offsets[index][inner][segment]
+          w_i32(file, db_head + 4 + segment * 4, target)
+          let remaining = length - segment * max_value_size
+          let size = if remaining > max_value_size {
+            max_value_size
+          } else {
+            remaining
+          }
+          let segment_total = cell_size(size)
+          w_i32(file, base_block_size + target, -segment_total)
+          let mut byte = 0
+          while byte < size {
+            file[base_block_size + target + 4 + byte] = value.data[segment *
+              max_value_size +
+              byte]
+            byte = byte + 1
+          }
+          segment = segment + 1
+        }
+      } else if length > 4 {
         let data_total = cell_size(length)
         let data_offset = data_offsets[index][inner]
         w_i32(file, base_block_size + data_offset, -data_total)
@@ -469,17 +679,80 @@ pub fn HiveBuilder::build(self : HiveBuilder) -> Result[Bytes, RegfError] {
     }
     let child_count = self.children[index].length()
     if subkey_list_offsets[index] >= 0 {
-      let list_total = cell_size(4 + 8 * child_count)
-      w_i32(file, base_block_size + subkey_list_offsets[index], -list_total)
-      let list_head = base_block_size + subkey_list_offsets[index] + 4
-      w_u16(file, list_head, 0x666C)
-      w_u16(file, list_head + 2, child_count)
-      let mut child = 0
-      while child < child_count {
-        let child_index = self.children[index][child]
-        w_i32(file, list_head + 4 + child * 8, nk_offsets[child_index])
-        w_i32(file, list_head + 8 + child * 8, name_hint(names[child_index]))
-        child = child + 1
+      if subkey_kinds[index] == 4 {
+        let chunks = (child_count + max_leaf_entries - 1) / max_leaf_entries
+        let ri_total = cell_size(4 + 4 * chunks)
+        w_i32(file, base_block_size + subkey_list_offsets[index], -ri_total)
+        let ri_head = base_block_size + subkey_list_offsets[index] + 4
+        w_u16(file, ri_head, 0x6972)
+        w_u16(file, ri_head + 2, chunks)
+        let mut chunk = 0
+        while chunk < chunks {
+          w_i32(file, ri_head + 4 + chunk * 4, chunk_offsets[index][chunk])
+          chunk = chunk + 1
+        }
+        chunk = 0
+        while chunk < chunks {
+          let start = chunk * max_leaf_entries
+          let mut stop = start + max_leaf_entries
+          if stop > child_count {
+            stop = child_count
+          }
+          let entries = stop - start
+          let chunk_total = cell_size(4 + 8 * entries)
+          w_i32(
+            file,
+            base_block_size + chunk_offsets[index][chunk],
+            -chunk_total,
+          )
+          let chunk_head = base_block_size + chunk_offsets[index][chunk] + 4
+          w_u16(file, chunk_head, 0x686C)
+          w_u16(file, chunk_head + 2, entries)
+          let mut entry = 0
+          while entry < entries {
+            let child_index = self.children[index][start + entry]
+            w_i32(file, chunk_head + 4 + entry * 8, nk_offsets[child_index])
+            w_i32(
+              file,
+              chunk_head + 8 + entry * 8,
+              lh_hash(names[child_index], name_flags[child_index]),
+            )
+            entry = entry + 1
+          }
+          chunk = chunk + 1
+        }
+      } else if subkey_kinds[index] == 3 {
+        let li_total = cell_size(4 + 4 * child_count)
+        w_i32(file, base_block_size + subkey_list_offsets[index], -li_total)
+        let li_head = base_block_size + subkey_list_offsets[index] + 4
+        w_u16(file, li_head, 0x696C)
+        w_u16(file, li_head + 2, child_count)
+        let mut child = 0
+        while child < child_count {
+          let child_index = self.children[index][child]
+          w_i32(file, li_head + 4 + child * 4, nk_offsets[child_index])
+          child = child + 1
+        }
+      } else {
+        let hashed = subkey_kinds[index] == 2
+        let list_total = cell_size(4 + 8 * child_count)
+        w_i32(file, base_block_size + subkey_list_offsets[index], -list_total)
+        let list_head = base_block_size + subkey_list_offsets[index] + 4
+        let signature = if hashed { 0x686C } else { 0x666C }
+        w_u16(file, list_head, signature)
+        w_u16(file, list_head + 2, child_count)
+        let mut child = 0
+        while child < child_count {
+          let child_index = self.children[index][child]
+          w_i32(file, list_head + 4 + child * 8, nk_offsets[child_index])
+          let hint = if hashed {
+            lh_hash(names[child_index], name_flags[child_index])
+          } else {
+            name_hint(names[child_index])
+          }
+          w_i32(file, list_head + 8 + child * 8, hint)
+          child = child + 1
+        }
       }
     }
     index = index + 1

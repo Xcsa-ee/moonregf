@@ -220,22 +220,153 @@ test "stores a value up to a whole data cell" {
 }
 
 ///|
-test "rejects a non-ASCII key name" {
-  let builder = HiveBuilder::new()
-  let _ = builder.add_key(0, "key-one")
-  let _ = builder.add_key(1, "中文")
-  assert_eq(
-    bw_build_error(builder),
-    "key 2 has a non-ASCII name, which build() does not support yet",
-  )
+/// True when some tree path ends with suffix.
+fn bw_has_path(entries : Array[HiveKeyEntry], suffix : String) -> Bool {
+  let mut index = 0
+  while index < entries.length() {
+    if entries[index].path.has_suffix(suffix) {
+      return true
+    }
+    index = index + 1
+  }
+  false
 }
 
 ///|
-test "rejects a value larger than one data cell" {
+/// Values of the root key as the reader sees them.
+fn bw_root_values(bytes : Bytes) -> Array[HiveValue] {
+  match parse_header(bytes) {
+    Err(_) => []
+    Ok(header) =>
+      match parse_key_node(bytes, header.root_cell_offset) {
+        Err(_) => []
+        Ok(key) =>
+          match list_values(bytes, key) {
+            Err(_) => []
+            Ok(values) => values
+          }
+      }
+  }
+}
+
+///|
+/// Number of children of the root key as the reader sees them, -1 on failure.
+fn bw_root_children(bytes : Bytes) -> Int32 {
+  match parse_header(bytes) {
+    Err(_) => -1
+    Ok(header) =>
+      match parse_key_node(bytes, header.root_cell_offset) {
+        Err(_) => -1
+        Ok(key) =>
+          match list_subkeys(bytes, key) {
+            Err(_) => -1
+            Ok(children) => children.length()
+          }
+      }
+  }
+}
+
+///|
+test "writes and reads a non-ASCII key name" {
   let builder = HiveBuilder::new()
-  builder.set_value(0, "Big", Binary, bw_blob(16345))
-  assert_eq(
-    bw_build_error(builder),
-    "value 16345 bytes cannot be stored in one data cell yet",
-  )
+  let _ = builder.add_key(0, "key-one")
+  let _ = builder.add_key(1, "中文")
+  match builder.build() {
+    Err(error) => assert_eq(error.message(), "built")
+    Ok(bytes) =>
+      match parse_header(bytes) {
+        Err(error) => assert_eq(error.message(), "header")
+        Ok(header) => {
+          let entries = walk_key_tree(bytes, header.root_cell_offset, 4)
+          assert_eq(bw_has_path(entries, "/中文"), true)
+          assert_eq(bw_has_path(entries, "/key-one"), true)
+        }
+      }
+  }
+}
+
+///|
+test "writes and reads a non-ASCII value name and text" {
+  let builder = HiveBuilder::new()
+  builder.set_string(0, "说明", "你好")
+  match builder.build() {
+    Err(error) => assert_eq(error.message(), "built")
+    Ok(bytes) => {
+      let values = bw_root_values(bytes)
+      assert_eq(values.length(), 1)
+      assert_eq(values[0].name, "说明")
+      match values[0].as_string() {
+        Some(text) => assert_eq(text, "你好")
+        None => assert_eq("decoded", "你好")
+      }
+    }
+  }
+}
+
+///|
+test "writes a value larger than one cell through a db record" {
+  let blob = bw_blob(40000)
+  let builder = HiveBuilder::new()
+  builder.set_value(0, "Big", Binary, blob)
+  match builder.build() {
+    Err(error) => assert_eq(error.message(), "built")
+    Ok(bytes) => {
+      let values = bw_root_values(bytes)
+      assert_eq(values.length(), 1)
+      assert_eq(values[0].data.length(), 40000)
+      assert_eq(Bytes::equal(values[0].data, blob), true)
+    }
+  }
+}
+
+///|
+test "writes a root index when a key has many children" {
+  let builder = HiveBuilder::new()
+  let mut index = 0
+  while index < 600 {
+    let _ = builder.add_key(0, "k" + index.to_string())
+    index = index + 1
+  }
+  assert_eq(bw_build_error(builder), "ok")
+  match builder.build() {
+    Err(error) => assert_eq(error.message(), "built")
+    Ok(bytes) => assert_eq(bw_root_children(bytes), 600)
+  }
+}
+
+///|
+test "honours a forced index leaf" {
+  let builder = HiveBuilder::new()
+  let _ = builder.add_key(0, "a")
+  let _ = builder.add_key(0, "b")
+  let _ = builder.add_key(0, "c")
+  builder.set_index_kind(0, IndexLeaf)
+  match builder.build() {
+    Err(error) => assert_eq(error.message(), "built")
+    Ok(bytes) => assert_eq(bw_root_children(bytes), 3)
+  }
+}
+
+///|
+test "honours a forced hash leaf" {
+  let builder = HiveBuilder::new()
+  let _ = builder.add_key(0, "alpha")
+  let _ = builder.add_key(0, "beta")
+  builder.set_index_kind(0, HashLeaf)
+  match builder.build() {
+    Err(error) => assert_eq(error.message(), "built")
+    Ok(bytes) => assert_eq(bw_root_children(bytes), 2)
+  }
+}
+
+///|
+test "honours a forced root index" {
+  let builder = HiveBuilder::new()
+  let _ = builder.add_key(0, "one")
+  let _ = builder.add_key(0, "two")
+  builder.set_index_kind(0, RootIndex)
+  match builder.build() {
+    Err(error) => assert_eq(error.message(), "built")
+    Ok(bytes) => assert_eq(bw_root_children(bytes), 2)
+  }
 }
