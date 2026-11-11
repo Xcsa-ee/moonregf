@@ -191,3 +191,49 @@ test "rejects a dirty page outside the bins" {
     Ok(_) => assert_eq("applied", "rejected")
   }
 }
+
+///|
+test "applies an older log and then a newer one" {
+  let hive = lg_hive()
+  let first = match
+    replay_log(hive, lg_make_log(2, 0, lg_page_with_byte(hive, 112, 0x41))) {
+    Err(_) => Bytes::new(0)
+    Ok(replay) => replay.bytes
+  }
+  let second = match
+    replay_log(first, lg_make_log(3, 0, lg_page_with_byte(hive, 112, 0x42))) {
+    Err(_) => Bytes::new(0)
+    Ok(replay) => replay.bytes
+  }
+  assert_eq(
+    lg_describe_replay(
+      first,
+      lg_make_log(3, 0, lg_page_with_byte(hive, 112, 0x42)),
+    ),
+    "ok applied=1 final=3 hive_seq=3 name=BOOT",
+  )
+  match parse_header(second) {
+    Err(error) => assert_eq(error.message(), "header")
+    Ok(header) =>
+      match parse_key_node(second, header.root_cell_offset) {
+        Err(error) => assert_eq(error.message(), "key")
+        Ok(key) => assert_eq(key.name, "BOOT")
+      }
+  }
+}
+
+///|
+test "does not go backwards when an older log arrives last" {
+  let hive = lg_hive()
+  let newer = match
+    replay_log(hive, lg_make_log(5, 0, lg_page_with_byte(hive, 112, 0x42))) {
+    Err(_) => Bytes::new(0)
+    Ok(replay) => replay.bytes
+  }
+  let after = match
+    replay_log(newer, lg_make_log(2, 0, lg_page_with_byte(hive, 112, 0x41))) {
+    Err(_) => Bytes::new(0)
+    Ok(replay) => replay.bytes
+  }
+  assert_eq(Bytes::equal(after, newer), true)
+}

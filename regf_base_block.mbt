@@ -75,6 +75,18 @@ fn compute_checksum(bytes : Bytes) -> UInt32 {
 }
 
 ///|
+/// True when the base block declares a major.minor this library reads.
+///
+/// Windows has shipped 1.3, 1.5 and 1.6; the record layouts this library
+/// understands are the ones those versions use.
+pub fn HiveHeader::version_supported(self : HiveHeader) -> Bool {
+  if self.major_version != 1 {
+    return false
+  }
+  self.minor_version >= 3 && self.minor_version <= 6
+}
+
+///|
 /// Parses the base block of a hive file.
 pub fn parse_header(bytes : Bytes) -> Result[HiveHeader, RegfError] {
   let size = bytes.length()

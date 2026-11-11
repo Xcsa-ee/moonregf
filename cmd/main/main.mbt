@@ -49,11 +49,19 @@ fn print_header(path : String, header : @moonregf.HiveHeader) -> Unit {
     " / " +
     header.secondary_sequence.to_string(),
   )
+  let supported = if header.version_supported() {
+    "supported"
+  } else {
+    "unsupported"
+  }
   println(
     "version    : " +
     header.major_version.to_string() +
     "." +
-    header.minor_version.to_string(),
+    header.minor_version.to_string() +
+    " (" +
+    supported +
+    ")",
   )
   println("file type  : " + header.file_type.label())
   println("root cell  : " + header.root_cell_offset.to_string())

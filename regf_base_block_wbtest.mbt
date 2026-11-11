@@ -182,3 +182,51 @@ test "maps the file type code" {
   put_u32(bytes, 0x1FC, checksum)
   assert_eq(type_is_log(Bytes::from_array(bytes)), true)
 }
+
+///|
+test "reads hives labelled 1.3, 1.5 and 1.6" {
+  let builder = HiveBuilder::new()
+  builder.set_dword(0, "Count", 1)
+  match builder.build() {
+    Err(error) => assert_eq(error.message(), "built")
+    Ok(bytes) => {
+      let cases : Array[UInt32] = [3, 5, 6]
+      let mut index = 0
+      while index < cases.length() {
+        let copy = bytes.to_array()
+        w_i32(copy, 0x18, cases[index].reinterpret_as_int())
+        let checksum = array_checksum(copy)
+        w_i32(copy, 0x1FC, checksum.reinterpret_as_int())
+        let patched = Bytes::from_array(copy)
+        match parse_header(patched) {
+          Err(error) => assert_eq(error.message(), "parsed")
+          Ok(header) => {
+            assert_eq(header.minor_version, cases[index])
+            assert_eq(header.version_supported(), true)
+            let entries = walk_key_tree(patched, header.root_cell_offset, 2)
+            assert_eq(entries.length(), 1)
+          }
+        }
+        index = index + 1
+      }
+    }
+  }
+}
+
+///|
+test "rejects a version outside 1.3 to 1.6" {
+  let builder = HiveBuilder::new()
+  match builder.build() {
+    Err(error) => assert_eq(error.message(), "built")
+    Ok(bytes) => {
+      let copy = bytes.to_array()
+      w_i32(copy, 0x18, 2)
+      let checksum = array_checksum(copy)
+      w_i32(copy, 0x1FC, checksum.reinterpret_as_int())
+      match parse_header(Bytes::from_array(copy)) {
+        Err(error) => assert_eq(error.message(), "parsed")
+        Ok(header) => assert_eq(header.version_supported(), false)
+      }
+    }
+  }
+}
