@@ -64,6 +64,7 @@ moon.pkg 中导入：
     moon run cmd/main -- --import-reg backup.reg rebuilt.hive
     moon run cmd/main -- --export-reg rebuilt.hive out.reg HKEY_CURRENT_USER
     moon run cmd/main -- --replay-log dirty.hive dirty.hive.LOG1 clean.hive
+    moon run cmd/main -- --rebuild in.hive out.hive
 
 ## 读一个真实 hive 的可复现路径
 
@@ -81,6 +82,22 @@ moon.pkg 中导入：
 
 在 `C:\Users\Default\NTUSER.DAT`（262,144 B）上实测：`walk_key_tree(data, header.root_cell_offset, 64)` 全深度遍历得 634 个键，`list_values` 汇总 1,065 个值；同一份 hive 用 regipy 6.5.0 逐条比对，路径与值名的对称差为 0（2026-11-08，在全新工程 `moon add Xcsa-ee/moonregf@0.2.0` 内运行；CLI 默认只列 depth 3 的键）。
 
+
+## 修改已有 hive
+
+`HiveEditor` 把 hive 读进内存，改完再写回，并保留原有元数据：
+
+    let editor = @moonregf.HiveEditor::open(raw)
+    if let Some(key) = editor.find("ROOT/Software/Vendor") {
+      editor.set_dword(key, "Count", 7)
+      let _ = editor.delete_value(key, "Install")
+      let added = editor.add_key(key, "Inner")
+      editor.set_string(added, "Note", "added")
+    }
+    let bytes = editor.build()
+
+保真的字段：nk 的写入时间戳、访问位与标志位，类名，sk 安全描述符，以及 base block 的文件名与序列号。
+在本机 `NTUSER.DAT` 上做过往返验证：634 键 / 1,065 值在重建后与原文件一致（regipy 双向计数相同），属主、属组与 ACL 标志不变。
 
 ## 示例
 

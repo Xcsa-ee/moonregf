@@ -15,6 +15,10 @@ fn main {
     )
     return
   }
+  if args[1] == "--rebuild" {
+    run_rebuild(args)
+    return
+  }
   if args[1] == "--build" {
     run_build(args)
     return
@@ -284,6 +288,42 @@ fn run_replay_log(args : Array[String]) -> Unit {
           " into " +
           target,
         )
+      }
+    }
+  } catch {
+    @fs.IOError::IOError(message) => println("I/O error: " + message)
+  }
+}
+
+///|
+/// Loads a hive, writes it back and reports what survived the round trip.
+fn run_rebuild(args : Array[String]) -> Unit {
+  if args.length() < 4 {
+    println("usage: moon run cmd/main -- --rebuild <input.hive> <output.hive>")
+    return
+  }
+  try {
+    let raw = @fs.read_file_to_bytes(args[2])
+    match @moonregf.HiveEditor::open(raw) {
+      Err(error) => println("error: " + error.message())
+      Ok(editor) => {
+        let keys = editor.key_count()
+        match editor.build() {
+          Err(error) => println("error: " + error.message())
+          Ok(bytes) => {
+            @fs.write_bytes_to_file(args[3], bytes)
+            println(
+              "rebuilt " +
+              keys.to_string() +
+              " keys from " +
+              raw.length().to_string() +
+              " bytes into " +
+              bytes.length().to_string() +
+              " bytes at " +
+              args[3],
+            )
+          }
+        }
       }
     }
   } catch {

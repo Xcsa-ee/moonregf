@@ -47,6 +47,15 @@ pub struct HiveBuilder {
   values : Array[Array[BuildValue]]
   kinds : Array[Int32]
   securities : Array[Bytes]
+  highs : Array[UInt32]
+  lows : Array[UInt32]
+  access : Array[UInt32]
+  extras : Array[UInt32]
+  classes : Array[Bytes]
+  mut file_name : String
+  mut sequence : Int32
+  mut stamp_low : Int32
+  mut stamp_high : Int32
 }
 
 ///|
@@ -309,7 +318,28 @@ pub fn HiveBuilder::new_named(root_name : String) -> HiveBuilder {
   let kinds : Array[Int32] = [-1]
   let empty : Bytes = Bytes::new(0)
   let securities : Array[Bytes] = [empty]
-  { names, parents, children, values, kinds, securities, }
+  let highs : Array[UInt32] = [0]
+  let lows : Array[UInt32] = [0]
+  let access : Array[UInt32] = [0]
+  let extras : Array[UInt32] = [0]
+  let classes : Array[Bytes] = [empty]
+  {
+    file_name: root_name,
+    sequence: 1,
+    stamp_low: 0,
+    stamp_high: 0,
+    names,
+    parents,
+    children,
+    values,
+    kinds,
+    securities,
+    highs,
+    lows,
+    access,
+    extras,
+    classes,
+  }
 }
 
 ///|
@@ -333,6 +363,11 @@ pub fn HiveBuilder::add_key(
   self.kinds.push(-1)
   let empty : Bytes = Bytes::new(0)
   self.securities.push(empty)
+  self.highs.push(0)
+  self.lows.push(0)
+  self.access.push(0)
+  self.extras.push(0)
+  self.classes.push(empty)
   self.children[parent].push(index)
   index
 }
@@ -401,6 +436,52 @@ pub fn HiveBuilder::set_security(
 }
 
 ///|
+/// Overrides the file name written into the base block.
+pub fn HiveBuilder::set_file_name(self : HiveBuilder, text : String) -> Unit {
+  self.file_name = text
+}
+
+///|
+/// Overrides the sequence numbers and the write timestamp of the base block.
+pub fn HiveBuilder::set_header_metadata(
+  self : HiveBuilder,
+  sequence : Int32,
+  stamp_low : Int32,
+  stamp_high : Int32,
+) -> Unit {
+  self.sequence = sequence
+  self.stamp_low = stamp_low
+  self.stamp_high = stamp_high
+}
+
+///|
+/// Copies the metadata of an existing key: the two halves of its last write
+/// timestamp, its access bits and any nk flag bit the caller wants kept.
+pub fn HiveBuilder::set_key_metadata(
+  self : HiveBuilder,
+  key_index : Int32,
+  high : UInt32,
+  low : UInt32,
+  access : UInt32,
+  extra_flags : UInt32,
+) -> Unit {
+  self.highs[key_index] = high
+  self.lows[key_index] = low
+  self.access[key_index] = access
+  self.extras[key_index] = extra_flags
+}
+
+///|
+/// Attaches a class name to a key. The bytes are stored as is, in UTF-16LE.
+pub fn HiveBuilder::set_class_name(
+  self : HiveBuilder,
+  key_index : Int32,
+  bytes : Bytes,
+) -> Unit {
+  self.classes[key_index] = bytes
+}
+
+///|
 /// Forces the index kind of one key instead of letting build() choose.
 pub fn HiveBuilder::set_index_kind(
   self : HiveBuilder,
@@ -449,6 +530,7 @@ pub fn HiveBuilder::build(self : HiveBuilder) -> Result[Bytes, RegfError] {
   let subkey_list_offsets = zero_ints(count)
   let subkey_kinds = zero_ints(count)
   let sk_offsets = zero_ints(count)
+  let class_offsets = zero_ints(count)
   let chunk_offsets : Array[Array[Int32]] = []
   let vk_offsets : Array[Array[Int32]] = []
   let data_offsets : Array[Array[Int32]] = []
@@ -491,6 +573,12 @@ pub fn HiveBuilder::build(self : HiveBuilder) -> Result[Bytes, RegfError] {
       cursor = cursor + cell_size(20 + self.securities[index].length())
     } else {
       sk_offsets[index] = -1
+    }
+    if self.classes[index].length() > 0 {
+      class_offsets[index] = cursor
+      cursor = cursor + cell_size(self.classes[index].length())
+    } else {
+      class_offsets[index] = -1
     }
     let value_count = self.values[index].length()
     if value_count > 0 {
@@ -565,8 +653,10 @@ pub fn HiveBuilder::build(self : HiveBuilder) -> Result[Bytes, RegfError] {
   let bin_size = (cursor + 4095) / 4096 * 4096
   let file = Bytes::new(base_block_size + bin_size).to_array()
   w_i32(file, 0, 0x66676572)
-  w_i32(file, 0x04, 1)
-  w_i32(file, 0x08, 1)
+  w_i32(file, 0x04, self.sequence)
+  w_i32(file, 0x08, self.sequence)
+  w_i32(file, 0x0C, self.stamp_low)
+  w_i32(file, 0x10, self.stamp_high)
   w_i32(file, 0x14, 1)
   w_i32(file, 0x18, 5)
   w_i32(file, 0x1C, 0)
@@ -574,7 +664,7 @@ pub fn HiveBuilder::build(self : HiveBuilder) -> Result[Bytes, RegfError] {
   w_i32(file, 0x24, nk_offsets[0])
   w_i32(file, 0x28, bin_size)
   w_i32(file, 0x2C, 1)
-  let label = encode_utf16le(self.names[0])
+  let label = encode_utf16le(self.file_name)
   let mut unit = 0
   while unit < 32 && unit * 2 + 1 < label.length() {
     file[0x30 + unit * 2] = label[unit * 2]
@@ -598,10 +688,14 @@ pub fn HiveBuilder::build(self : HiveBuilder) -> Result[Bytes, RegfError] {
     if name_flags[index] {
       flags = 0x20
     }
+    flags = flags | self.extras[index].reinterpret_as_int()
     if index == 0 {
       flags = flags | 0x0C
     }
     w_u16(file, head + 2, flags)
+    w_i32(file, head + 4, self.highs[index].reinterpret_as_int())
+    w_i32(file, head + 8, self.lows[index].reinterpret_as_int())
+    w_i32(file, head + 12, self.access[index].reinterpret_as_int())
     let parent = if index == 0 { -1 } else { nk_offsets[self.parents[index]] }
     w_i32(file, head + 16, parent)
     w_i32(file, head + 20, self.children[index].length())
@@ -611,15 +705,21 @@ pub fn HiveBuilder::build(self : HiveBuilder) -> Result[Bytes, RegfError] {
     w_i32(file, head + 36, self.values[index].length())
     w_i32(file, head + 40, value_list_offsets[index])
     w_i32(file, head + 44, sk_offsets[index])
-    w_i32(file, head + 48, -1)
+    w_i32(file, head + 48, class_offsets[index])
     w_i32(file, head + 52, longest_child_name(names, self.children[index]))
     w_i32(file, head + 56, 0)
     w_i32(file, head + 60, longest_value_name(value_names[index]))
     w_i32(file, head + 64, largest_value_size(self.values[index]))
     w_i32(file, head + 68, 0)
     w_u16(file, head + 72, name.length())
-    w_u16(file, head + 74, 0)
+    w_u16(file, head + 74, self.classes[index].length())
     w_bytes(file, head + 76, name)
+    if class_offsets[index] >= 0 {
+      let class_bytes = self.classes[index]
+      let class_total = cell_size(class_bytes.length())
+      w_i32(file, base_block_size + class_offsets[index], -class_total)
+      w_bytes(file, base_block_size + class_offsets[index] + 4, class_bytes)
+    }
     if sk_offsets[index] >= 0 {
       let descriptor = self.securities[index]
       let sk_total = cell_size(20 + descriptor.length())

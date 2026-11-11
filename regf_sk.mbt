@@ -208,3 +208,26 @@ pub fn security_descriptor_with_owner_group(
   }
   Ok(Bytes::from_array(out))
 }
+
+///|
+/// Returns the raw self-relative descriptor a key points at, or empty bytes.
+pub fn security_bytes_of(bytes : Bytes, key : HiveKeyNode) -> Bytes {
+  let relative = key.security_offset.reinterpret_as_int()
+  if relative < 0 {
+    return Bytes::new(0)
+  }
+  match read_cell(bytes, key.security_offset) {
+    Err(_) => Bytes::new(0)
+    Ok(cell) => {
+      let head = hive_bins_base + relative + 4
+      if read_u16_le(bytes, head) != 0x6B73 {
+        return Bytes::new(0)
+      }
+      let size = read_u32_le(bytes, head + 16).reinterpret_as_int()
+      if size <= 0 || size > cell.payload_size - 20 {
+        return Bytes::new(0)
+      }
+      copy_range(bytes, head + 20, size)
+    }
+  }
+}
