@@ -15,6 +15,10 @@ fn main {
     )
     return
   }
+  if args[1] == "--orphans" {
+    run_orphans(args)
+    return
+  }
   if args[1] == "--rebuild" {
     run_rebuild(args)
     return
@@ -348,6 +352,39 @@ fn run_rebuild(args : Array[String]) -> Unit {
             )
           }
         }
+      }
+    }
+  } catch {
+    @fs.IOError::IOError(message) => println("I/O error: " + message)
+  }
+}
+
+///|
+/// Reports the nk and del records the live key tree no longer reaches.
+fn run_orphans(args : Array[String]) -> Unit {
+  if args.length() < 3 {
+    println("usage: moon run cmd/main -- --orphans <hive file>")
+    return
+  }
+  try {
+    let data = @fs.read_file_to_bytes(args[2])
+    match @moonregf.scan_orphan_records(data) {
+      Err(error) => println("error: " + error.message())
+      Ok(records) => {
+        let mut index = 0
+        while index < records.length() && index < 20 {
+          let record = records[index]
+          println(
+            "orphan     : " +
+            record.signature +
+            " offset=" +
+            record.offset.to_string() +
+            " name=" +
+            record.name,
+          )
+          index = index + 1
+        }
+        println("orphans    : " + records.length().to_string())
       }
     }
   } catch {
