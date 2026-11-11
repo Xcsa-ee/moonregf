@@ -101,10 +101,38 @@ fn print_values(data : Bytes, entries : Array[@moonregf.HiveKeyEntry]) -> Unit {
 }
 
 ///|
+/// Prints the owner and the group of the root key security descriptor.
+fn print_security(data : Bytes, header : @moonregf.HiveHeader) -> Unit {
+  match @moonregf.parse_key_node(data, header.root_cell_offset) {
+    Err(error) => println("security   : " + error.message())
+    Ok(key) =>
+      match @moonregf.describe_security(data, key) {
+        Err(error) => println("security   : " + error.message())
+        Ok(descriptor) => {
+          println("owner      : " + descriptor.owner)
+          println("group      : " + descriptor.group)
+          let dacl = if descriptor.has_dacl { "present" } else { "none" }
+          let sacl = if descriptor.has_sacl { "present" } else { "none" }
+          println("dacl       : " + dacl)
+          println("sacl       : " + sacl)
+        }
+      }
+  }
+}
+
+///|
 /// Prints the header and the tree or every value of a hive file.
 fn run_inspect(args : Array[String]) -> Unit {
   let path = args[1]
   let want_values = args.length() >= 3 && args[2] == "--values"
+  let mut want_security = false
+  let mut scan = 2
+  while scan < args.length() {
+    if args[scan] == "--security" {
+      want_security = true
+    }
+    scan = scan + 1
+  }
   try {
     let data = @fs.read_file_to_bytes(path)
     match @moonregf.parse_header(data) {
@@ -121,6 +149,9 @@ fn run_inspect(args : Array[String]) -> Unit {
             index = index + 1
           }
           println("tree keys  : " + entries.length().to_string())
+        }
+        if want_security {
+          print_security(data, header)
         }
       }
       Err(error) => println("error: " + error.message())

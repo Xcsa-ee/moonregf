@@ -35,6 +35,8 @@ pub(all) enum RegfError {
   BadLogEntry(Int32)
   // A dirty page points outside the hive bins data.
   BadLogPage(Int32)
+  // A security descriptor or an sk record cannot be parsed.
+  BadSecurityDescriptor(String)
 }
 
 ///|
@@ -79,5 +81,7 @@ pub fn RegfError::message(self : RegfError) -> String {
       "log entry at " + offset.to_string() + " is malformed"
     BadLogPage(offset) =>
       "dirty page at " + offset.to_string() + " is outside the hive bins data"
+    BadSecurityDescriptor(detail) =>
+      "cannot read the security descriptor: " + detail
   }
 }

@@ -46,6 +46,7 @@ pub struct HiveBuilder {
   children : Array[Array[Int32]]
   values : Array[Array[BuildValue]]
   kinds : Array[Int32]
+  securities : Array[Bytes]
 }
 
 ///|
@@ -306,7 +307,9 @@ pub fn HiveBuilder::new_named(root_name : String) -> HiveBuilder {
   let values : Array[Array[BuildValue]] = []
   values.push([])
   let kinds : Array[Int32] = [-1]
-  { names, parents, children, values, kinds, }
+  let empty : Bytes = Bytes::new(0)
+  let securities : Array[Bytes] = [empty]
+  { names, parents, children, values, kinds, securities, }
 }
 
 ///|
@@ -328,6 +331,8 @@ pub fn HiveBuilder::add_key(
   self.children.push([])
   self.values.push([])
   self.kinds.push(-1)
+  let empty : Bytes = Bytes::new(0)
+  self.securities.push(empty)
   self.children[parent].push(index)
   index
 }
@@ -382,6 +387,20 @@ pub fn HiveBuilder::set_dword(
 }
 
 ///|
+/// Attaches a self-relative security descriptor to a key.
+///
+/// The bytes become the payload of an sk record. Pass the output of
+/// security_descriptor_with_owner_group() when only an owner and a group are
+/// needed.
+pub fn HiveBuilder::set_security(
+  self : HiveBuilder,
+  key_index : Int32,
+  descriptor : Bytes,
+) -> Unit {
+  self.securities[key_index] = descriptor
+}
+
+///|
 /// Forces the index kind of one key instead of letting build() choose.
 pub fn HiveBuilder::set_index_kind(
   self : HiveBuilder,
@@ -429,6 +448,7 @@ pub fn HiveBuilder::build(self : HiveBuilder) -> Result[Bytes, RegfError] {
   let value_list_offsets = zero_ints(count)
   let subkey_list_offsets = zero_ints(count)
   let subkey_kinds = zero_ints(count)
+  let sk_offsets = zero_ints(count)
   let chunk_offsets : Array[Array[Int32]] = []
   let vk_offsets : Array[Array[Int32]] = []
   let data_offsets : Array[Array[Int32]] = []
@@ -466,6 +486,12 @@ pub fn HiveBuilder::build(self : HiveBuilder) -> Result[Bytes, RegfError] {
   while index < count {
     nk_offsets[index] = cursor
     cursor = cursor + cell_size(76 + names[index].length())
+    if self.securities[index].length() > 0 {
+      sk_offsets[index] = cursor
+      cursor = cursor + cell_size(20 + self.securities[index].length())
+    } else {
+      sk_offsets[index] = -1
+    }
     let value_count = self.values[index].length()
     if value_count > 0 {
       value_list_offsets[index] = cursor
@@ -584,7 +610,7 @@ pub fn HiveBuilder::build(self : HiveBuilder) -> Result[Bytes, RegfError] {
     w_i32(file, head + 32, -1)
     w_i32(file, head + 36, self.values[index].length())
     w_i32(file, head + 40, value_list_offsets[index])
-    w_i32(file, head + 44, -1)
+    w_i32(file, head + 44, sk_offsets[index])
     w_i32(file, head + 48, -1)
     w_i32(file, head + 52, longest_child_name(names, self.children[index]))
     w_i32(file, head + 56, 0)
@@ -594,6 +620,19 @@ pub fn HiveBuilder::build(self : HiveBuilder) -> Result[Bytes, RegfError] {
     w_u16(file, head + 72, name.length())
     w_u16(file, head + 74, 0)
     w_bytes(file, head + 76, name)
+    if sk_offsets[index] >= 0 {
+      let descriptor = self.securities[index]
+      let sk_total = cell_size(20 + descriptor.length())
+      w_i32(file, base_block_size + sk_offsets[index], -sk_total)
+      let sk_head = base_block_size + sk_offsets[index] + 4
+      w_u16(file, sk_head, 0x6B73)
+      w_u16(file, sk_head + 2, 0)
+      w_i32(file, sk_head + 4, -1)
+      w_i32(file, sk_head + 8, -1)
+      w_i32(file, sk_head + 12, 1)
+      w_i32(file, sk_head + 16, descriptor.length())
+      w_bytes(file, sk_head + 20, descriptor)
+    }
     let value_count = self.values[index].length()
     if value_list_offsets[index] >= 0 {
       let list_total = cell_size(value_count * 4)

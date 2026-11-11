@@ -59,6 +59,7 @@ moon.pkg 中导入：
 
     moon run cmd/main -- <path-to-NTUSER.DAT>
     moon run cmd/main -- <path-to-NTUSER.DAT> --values
+    moon run cmd/main -- <path-to-NTUSER.DAT> --security
     moon run cmd/main -- --build demo.hive
     moon run cmd/main -- --import-reg backup.reg rebuilt.hive
     moon run cmd/main -- --export-reg rebuilt.hive out.reg HKEY_CURRENT_USER
@@ -110,7 +111,7 @@ moon.pkg 中导入：
 | vk 值记录 | 是 | 是 | 类型码 1 / 2 / 3 / 4 / 7 / 11 已映射 |
 | 内联数据 | 是 | 是 | 数据不超过 4 字节时直接存在 vk 里 |
 | big data（db） | 是 | 是 | 读取按段拼接；写入按 16344 字节分段 |
-| sk 安全描述符 | 否 | 否 | 只保留偏移，不解析 ACL |
+| sk 安全描述符 | 是 | 是 | 解析属主与属组 SID、ACL 是否存在；写入按给定描述符生成 sk 记录 |
 | .reg 文本 | 是 | 是 | 导入支持 REGEDIT4 与 version 5.00；导出固定 version 5.00 |
 | .reg 删除段 | 否 | 否 | 遇到 [-key] 返回 UnsupportedDelete |
 | HvLE 事务日志 | 是 | 否 | 只解析 8.1 及更新版本；写入与生成日志不在范围内 |
@@ -126,7 +127,6 @@ moon.pkg 中导入：
 
 ## 已知限制
 
-- sk 安全描述符只保留偏移，不解析 ACL；写入器暂不生成 sk 记录。
 - `.reg` 导入不支持 [-key] 删除段，遇到时返回 UnsupportedDelete。
 - 事务日志只解析 Windows 8.1 及更新版本的 HvLE 格式；更早的 512 字节头格式返回 UnsupportedLogVersion。
 - `.reg` 导出输出 UTF-8 文本；导入端支持 UTF-16LE 与 UTF-8 两种输入。
