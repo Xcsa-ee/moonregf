@@ -127,6 +127,22 @@ fn print_security(data : Bytes, header : @moonregf.HiveHeader) -> Unit {
           let sacl = if descriptor.has_sacl { "present" } else { "none" }
           println("dacl       : " + dacl)
           println("sacl       : " + sacl)
+          println("acl entries: " + descriptor.dacl.length().to_string())
+          let mut ace = 0
+          while ace < descriptor.dacl.length() && ace < 8 {
+            let entry = descriptor.dacl[ace]
+            println(
+              "  ace    : " +
+              entry.ace_type.label() +
+              " mask=0x" +
+              entry.mask.to_string(radix=16) +
+              " flags=0x" +
+              entry.flags.to_string(radix=16) +
+              " sid=" +
+              entry.sid,
+            )
+            ace = ace + 1
+          }
         }
       }
   }

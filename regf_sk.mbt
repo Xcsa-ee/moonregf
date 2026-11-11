@@ -7,6 +7,7 @@ pub(all) struct SecurityDescriptor {
   group : String
   has_sacl : Bool
   has_dacl : Bool
+  dacl : Array[Ace]
 }
 
 ///|
@@ -138,6 +139,14 @@ pub fn parse_security_descriptor(
   } else {
     ""
   }
+  let dacl = if dacl_offset > 0 {
+    match parse_acl(bytes, offset + dacl_offset) {
+      Err(_) => []
+      Ok(entries) => entries
+    }
+  } else {
+    []
+  }
   Ok({
     revision,
     control,
@@ -145,6 +154,7 @@ pub fn parse_security_descriptor(
     group,
     has_sacl: sacl_offset > 0,
     has_dacl: dacl_offset > 0,
+    dacl,
   })
 }
 
