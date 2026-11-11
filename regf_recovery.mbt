@@ -59,19 +59,25 @@ pub fn scan_orphan_records(
   let out : Array[OrphanRecord] = []
   let limit = hive_bins_base + header.hive_bins_data_size.reinterpret_as_int()
   let stop = if limit > bytes.length() { bytes.length() } else { limit }
-  let mut cursor = hive_bins_base
-  while cursor + 8 <= stop {
-    if (cursor - hive_bins_base) % 4096 == 0 {
-      cursor = cursor + 32
+  let mut bin_start = hive_bins_base
+  while bin_start + 32 <= stop {
+    let declared = read_u32_le(bytes, bin_start + 8).reinterpret_as_int()
+    let bin_bytes = if declared >= 4096 && bin_start + declared <= stop {
+      declared
     } else {
-      let raw = read_u32_le(bytes, cursor).reinterpret_as_int()
-      let total = if raw < 0 { -raw } else { raw }
-      if raw == 0 || total < 8 || cursor + total > stop {
-        cursor = stop
+      stop - bin_start
+    }
+    let bin_end = bin_start + bin_bytes
+    let mut cursor = bin_start + 32
+    while cursor + 8 <= bin_end {
+      let raw_size = read_u32_le(bytes, cursor).reinterpret_as_int()
+      let total = if raw_size < 0 { -raw_size } else { raw_size }
+      if raw_size == 0 || total < 8 || cursor + total > bin_end {
+        cursor = bin_end
       } else {
         let payload = cursor + 4
         let relative = cursor - hive_bins_base
-        if raw < 0 && payload + 76 <= cursor + total {
+        if raw_size < 0 && payload + 76 <= cursor + total {
           let first = bytes[payload].to_int()
           let second = bytes[payload + 1].to_int()
           let live = first == 0x6E && second == 0x6B
@@ -95,6 +101,7 @@ pub fn scan_orphan_records(
         cursor = cursor + total
       }
     }
+    bin_start = bin_end
   }
   Ok(out)
 }

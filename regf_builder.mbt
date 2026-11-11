@@ -492,6 +492,61 @@ pub fn HiveBuilder::set_index_kind(
 }
 
 ///|
+/// Bumps a cursor through contiguous bins.
+///
+/// A bin is at least 4096 bytes and always a multiple of 4096. Its first 32
+/// bytes are the hbin header, so a cell offset is never a multiple of 4096.
+/// Every cell stays inside one bin: when a cell does not fit, the tail of the
+/// bin becomes one free cell and the next bin is started.
+priv struct BinCursor {
+  mut cursor : Int32
+  mut bin_start : Int32
+  mut bin_bytes : Int32
+  bins_at : Array[Int32]
+  bins_len : Array[Int32]
+  pads_at : Array[Int32]
+  pads_size : Array[Int32]
+}
+
+///|
+/// Smallest bin that fits a cell of size bytes next to its 32 byte header.
+fn cell_bins_size(size : Int32) -> Int32 {
+  let needed = size + 32
+  let mut capacity = 4096
+  while capacity < needed {
+    capacity = capacity + 4096
+  }
+  capacity
+}
+
+///|
+/// Reserves size bytes and returns the cell offset inside the bins region.
+///
+/// The returned offset is never a multiple of 4096 because every bin starts
+/// with a 32 byte header that cells must not overlap.
+fn allocate(bins : BinCursor, size : Int32) -> Int32 {
+  if bins.cursor == bins.bin_start + 32 {
+    bins.bin_bytes = cell_bins_size(size)
+    bins.bins_at.push(bins.bin_start)
+    bins.bins_len.push(bins.bin_bytes)
+  } else if bins.cursor + size > bins.bin_start + bins.bin_bytes {
+    let pad = bins.bin_start + bins.bin_bytes - bins.cursor
+    if pad > 0 {
+      bins.pads_at.push(bins.cursor)
+      bins.pads_size.push(pad)
+    }
+    bins.bin_start = bins.bin_start + bins.bin_bytes
+    bins.cursor = bins.bin_start + 32
+    bins.bin_bytes = cell_bins_size(size)
+    bins.bins_at.push(bins.bin_start)
+    bins.bins_len.push(bins.bin_bytes)
+  }
+  let at = bins.cursor
+  bins.cursor = at + size
+  at
+}
+
+///|
 /// Serializes the tree into a REGF hive file.
 ///
 /// The layout is the one Windows uses: a 4096-byte base block, then one or
@@ -563,59 +618,67 @@ pub fn HiveBuilder::build(self : HiveBuilder) -> Result[Bytes, RegfError] {
     )
     index = index + 1
   }
-  let mut cursor = 32
+  let bins : BinCursor = {
+    cursor: 32,
+    bin_start: 0,
+    bin_bytes: 4096,
+    bins_at: [],
+    bins_len: [],
+    pads_at: [],
+    pads_size: [],
+  }
   index = 0
   while index < count {
-    nk_offsets[index] = cursor
-    cursor = cursor + cell_size(76 + names[index].length())
+    nk_offsets[index] = allocate(bins, cell_size(76 + names[index].length()))
     if self.securities[index].length() > 0 {
-      sk_offsets[index] = cursor
-      cursor = cursor + cell_size(20 + self.securities[index].length())
+      sk_offsets[index] = allocate(
+        bins,
+        cell_size(20 + self.securities[index].length()),
+      )
     } else {
       sk_offsets[index] = -1
     }
     if self.classes[index].length() > 0 {
-      class_offsets[index] = cursor
-      cursor = cursor + cell_size(self.classes[index].length())
+      class_offsets[index] = allocate(
+        bins,
+        cell_size(self.classes[index].length()),
+      )
     } else {
       class_offsets[index] = -1
     }
     let value_count = self.values[index].length()
     if value_count > 0 {
-      value_list_offsets[index] = cursor
-      cursor = cursor + cell_size(value_count * 4)
+      value_list_offsets[index] = allocate(bins, cell_size(value_count * 4))
     } else {
       value_list_offsets[index] = -1
     }
     let mut inner = 0
     while inner < value_count {
-      vk_offsets[index].push(cursor)
-      cursor = cursor + cell_size(20 + value_names[index][inner].length())
+      vk_offsets[index].push(
+        allocate(bins, cell_size(20 + value_names[index][inner].length())),
+      )
       let length = self.values[index][inner].data.length()
       if length > max_value_size {
         let segments = big_segment_count(length)
         data_offsets[index].push(-1)
-        db_offsets[index].push(cursor)
-        cursor = cursor + cell_size(4 + 4 * segments)
+        db_offsets[index].push(allocate(bins, cell_size(4 + 4 * segments)))
         let offsets : Array[Int32] = []
         let mut segment = 0
         while segment < segments {
-          offsets.push(cursor)
           let remaining = length - segment * max_value_size
           let size = if remaining > max_value_size {
             max_value_size
           } else {
             remaining
           }
-          cursor = cursor + cell_size(size)
+          offsets.push(allocate(bins, cell_size(size)))
           segment = segment + 1
         }
         segment_offsets[index].push(offsets)
       } else if length > 4 {
-        data_offsets[index].push(cursor)
+        data_offsets[index].push(allocate(bins, cell_size(length)))
         db_offsets[index].push(-1)
         segment_offsets[index].push([])
-        cursor = cursor + cell_size(length)
       } else {
         data_offsets[index].push(-1)
         db_offsets[index].push(-1)
@@ -626,32 +689,39 @@ pub fn HiveBuilder::build(self : HiveBuilder) -> Result[Bytes, RegfError] {
     let child_count = self.children[index].length()
     if child_count > 0 {
       if subkey_kinds[index] == 4 {
-        subkey_list_offsets[index] = cursor
         let chunks = (child_count + max_leaf_entries - 1) / max_leaf_entries
-        cursor = cursor + cell_size(4 + 4 * chunks)
+        subkey_list_offsets[index] = allocate(bins, cell_size(4 + 4 * chunks))
         let mut chunk = 0
         while chunk < chunks {
-          chunk_offsets[index].push(cursor)
           let start = chunk * max_leaf_entries
           let mut stop = start + max_leaf_entries
           if stop > child_count {
             stop = child_count
           }
-          cursor = cursor + cell_size(4 + 8 * (stop - start))
+          chunk_offsets[index].push(
+            allocate(bins, cell_size(4 + 8 * (stop - start))),
+          )
           chunk = chunk + 1
         }
       } else {
         let entry_size = if subkey_kinds[index] == 3 { 4 } else { 8 }
-        subkey_list_offsets[index] = cursor
-        cursor = cursor + cell_size(4 + entry_size * child_count)
+        subkey_list_offsets[index] = allocate(
+          bins,
+          cell_size(4 + entry_size * child_count),
+        )
       }
     } else {
       subkey_list_offsets[index] = -1
     }
     index = index + 1
   }
-  let bin_size = (cursor + 4095) / 4096 * 4096
-  let file = Bytes::new(base_block_size + bin_size).to_array()
+  let tail = bins.bin_start + bins.bin_bytes
+  if bins.cursor < tail {
+    bins.pads_at.push(bins.cursor)
+    bins.pads_size.push(tail - bins.cursor)
+  }
+  let bins_size = tail
+  let file = Bytes::new(base_block_size + bins_size).to_array()
   w_i32(file, 0, 0x66676572)
   w_i32(file, 0x04, self.sequence)
   w_i32(file, 0x08, self.sequence)
@@ -662,7 +732,7 @@ pub fn HiveBuilder::build(self : HiveBuilder) -> Result[Bytes, RegfError] {
   w_i32(file, 0x1C, 0)
   w_i32(file, 0x20, 1)
   w_i32(file, 0x24, nk_offsets[0])
-  w_i32(file, 0x28, bin_size)
+  w_i32(file, 0x28, bins_size)
   w_i32(file, 0x2C, 1)
   let label = encode_utf16le(self.file_name)
   let mut unit = 0
@@ -673,9 +743,19 @@ pub fn HiveBuilder::build(self : HiveBuilder) -> Result[Bytes, RegfError] {
   }
   let checksum = array_checksum(file)
   w_i32(file, 0x1FC, checksum.reinterpret_as_int())
-  w_i32(file, base_block_size, 0x6E696268)
-  w_i32(file, base_block_size + 4, 0)
-  w_i32(file, base_block_size + 8, bin_size)
+  let mut bin = 0
+  while bin < bins.bins_at.length() {
+    let head = base_block_size + bins.bins_at[bin]
+    w_i32(file, head, 0x6E696268)
+    w_i32(file, head + 4, bins.bins_at[bin])
+    w_i32(file, head + 8, bins.bins_len[bin])
+    bin = bin + 1
+  }
+  bin = 0
+  while bin < bins.pads_at.length() {
+    w_i32(file, base_block_size + bins.pads_at[bin], bins.pads_size[bin])
+    bin = bin + 1
+  }
   index = 0
   while index < count {
     let offset = nk_offsets[index]

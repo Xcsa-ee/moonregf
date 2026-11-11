@@ -97,6 +97,8 @@ moon.pkg 中导入：
     let bytes = editor.build()
 
 保真的字段：nk 的写入时间戳、访问位与标志位，类名，sk 安全描述符，以及 base block 的文件名与序列号。
+
+写入器按 4096 字节分箱：每个 bin 自带 32 字节 hbin 头，bin 尾部补空闲 cell，单个 cell 放不进当前 bin 时它会独占一个按需扩大的 bin。写出的多 bin hive 与 Windows 自己的布局同形。
 在本机 `NTUSER.DAT` 上做过往返验证：634 键 / 1,065 值在重建后与原文件一致（regipy 双向计数相同），属主、属组与 ACL 标志不变。
 
 ## 示例
