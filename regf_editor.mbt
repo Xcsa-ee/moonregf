@@ -30,6 +30,8 @@ pub struct HiveEditor {
   sequence : Int32
   stamp_low : Int32
   stamp_high : Int32
+  skipped_values : Int32
+  skipped_subkey_lists : Int32
 }
 
 ///|
@@ -56,20 +58,37 @@ fn class_bytes_of(bytes : Bytes, key : HiveKeyNode) -> Bytes {
 
 ///|
 /// Builds an editable key from a parsed nk record.
+
+///|
+/// Counts the records that could not be parsed while a hive was loaded.
+priv struct ParseTally {
+  mut skipped_values : Int32
+  mut skipped_subkey_lists : Int32
+}
+
+///|
+/// Builds an editable key from a parsed nk record.
+///
+/// A value or a value list that cannot be parsed is counted in tally instead
+/// of disappearing without a trace.
 fn editable_from(
   bytes : Bytes,
   key : HiveKeyNode,
   parent : Int32,
+  tally : ParseTally,
 ) -> EditableKey {
   let values : Array[EditableValue] = []
   let offsets = match value_offsets(bytes, key) {
-    Err(_) => []
+    Err(_) => {
+      tally.skipped_values = tally.skipped_values + 1
+      []
+    }
     Ok(parsed) => parsed
   }
   let mut index = 0
   while index < offsets.length() {
     match parse_value(bytes, offsets[index]) {
-      Err(_) => ()
+      Err(_) => tally.skipped_values = tally.skipped_values + 1
       Ok(value) => {
         let entry : EditableValue = {
           name: value.name,
@@ -97,6 +116,12 @@ fn editable_from(
 
 ///|
 /// Loads every key, value and metadata field of a hive into memory.
+
+///|
+/// Loads every key, value and metadata field of a hive into memory.
+///
+/// Records that cannot be parsed are counted, not dropped silently: read
+/// skipped_values() and skipped_subkey_lists(), or call open_strict().
 pub fn HiveEditor::open(bytes : Bytes) -> Result[HiveEditor, RegfError] {
   let header = match parse_header(bytes) {
     Err(error) => return Err(error)
@@ -106,23 +131,25 @@ pub fn HiveEditor::open(bytes : Bytes) -> Result[HiveEditor, RegfError] {
     Err(error) => return Err(error)
     Ok(parsed) => parsed
   }
-  let keys : Array[EditableKey] = [editable_from(bytes, root, -1)]
+  let tally : ParseTally = { skipped_values: 0, skipped_subkey_lists: 0, }
+  let keys : Array[EditableKey] = [editable_from(bytes, root, -1, tally)]
   let offsets : Array[UInt32] = [header.root_cell_offset]
   let mut index = 0
   while index < keys.length() {
     match parse_key_node(bytes, offsets[index]) {
-      Err(_) => ()
+      Err(_) => tally.skipped_subkey_lists = tally.skipped_subkey_lists + 1
       Ok(parent_node) =>
         match list_subkeys(bytes, parent_node) {
-          Err(_) => ()
+          Err(_) => tally.skipped_subkey_lists = tally.skipped_subkey_lists + 1
           Ok(children) => {
             let mut child = 0
             while child < children.length() {
               match parse_key_node(bytes, children[child].offset) {
-                Err(_) => ()
+                Err(_) =>
+                  tally.skipped_subkey_lists = tally.skipped_subkey_lists + 1
                 Ok(node) => {
                   let new_index = keys.length()
-                  keys.push(editable_from(bytes, node, index))
+                  keys.push(editable_from(bytes, node, index, tally))
                   offsets.push(children[child].offset)
                   keys[index].children.push(new_index)
                 }
@@ -140,8 +167,42 @@ pub fn HiveEditor::open(bytes : Bytes) -> Result[HiveEditor, RegfError] {
     sequence: header.primary_sequence.reinterpret_as_int(),
     stamp_low: header.last_written_low.reinterpret_as_int(),
     stamp_high: header.last_written_high.reinterpret_as_int(),
+    skipped_values: tally.skipped_values,
+    skipped_subkey_lists: tally.skipped_subkey_lists,
   }
   Ok(editor)
+}
+
+///|
+/// Number of values that could not be parsed while the hive was loaded.
+pub fn HiveEditor::skipped_values(self : HiveEditor) -> Int32 {
+  self.skipped_values
+}
+
+///|
+/// Number of subkey records that could not be parsed while loading.
+pub fn HiveEditor::skipped_subkey_lists(self : HiveEditor) -> Int32 {
+  self.skipped_subkey_lists
+}
+
+///|
+/// True when nothing had to be skipped, so a rebuild keeps every record.
+pub fn HiveEditor::is_lossless(self : HiveEditor) -> Bool {
+  self.skipped_values == 0 && self.skipped_subkey_lists == 0
+}
+
+///|
+/// Loads a hive but refuses one that a rebuild would write back incomplete.
+pub fn HiveEditor::open_strict(bytes : Bytes) -> Result[HiveEditor, RegfError] {
+  match HiveEditor::open(bytes) {
+    Err(error) => Err(error)
+    Ok(editor) =>
+      if editor.is_lossless() {
+        Ok(editor)
+      } else {
+        Err(LossyHive(editor.skipped_values(), editor.skipped_subkey_lists()))
+      }
+  }
 }
 
 ///|

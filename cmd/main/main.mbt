@@ -325,16 +325,46 @@ fn run_replay_log(args : Array[String]) -> Unit {
 
 ///|
 /// Loads a hive, writes it back and reports what survived the round trip.
+
+///|
+/// Loads a hive, writes it back and reports what survived the round trip.
+///
+/// Loading refuses a hive that would be written back with records missing;
+/// pass --force to rebuild such a hive anyway and print what was dropped.
 fn run_rebuild(args : Array[String]) -> Unit {
   if args.length() < 4 {
-    println("usage: moon run cmd/main -- --rebuild <input.hive> <output.hive>")
+    println(
+      "usage: moon run cmd/main -- --rebuild <input.hive> <output.hive> [--force]",
+    )
     return
   }
   try {
     let raw = @fs.read_file_to_bytes(args[2])
-    match @moonregf.HiveEditor::open(raw) {
+    let mut force = false
+    let mut scan = 3
+    while scan < args.length() {
+      if args[scan] == "--force" {
+        force = true
+      }
+      scan = scan + 1
+    }
+    let loaded = if force {
+      @moonregf.HiveEditor::open(raw)
+    } else {
+      @moonregf.HiveEditor::open_strict(raw)
+    }
+    match loaded {
       Err(error) => println("error: " + error.message())
       Ok(editor) => {
+        if !editor.is_lossless() {
+          println(
+            "warning    : " +
+            editor.skipped_values().to_string() +
+            " values and " +
+            editor.skipped_subkey_lists().to_string() +
+            " subkey lists could not be parsed and are dropped by this rebuild",
+          )
+        }
         let keys = editor.key_count()
         match editor.build() {
           Err(error) => println("error: " + error.message())

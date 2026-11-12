@@ -183,3 +183,104 @@ test "deletes a key together with its children" {
     }
   }
 }
+
+///|
+/// Looks a value up by name.
+fn ed_pick(values : Array[HiveValue], name : String) -> HiveValue? {
+  let mut index = 0
+  while index < values.length() {
+    if values[index].name == name {
+      return Some(values[index])
+    }
+    index = index + 1
+  }
+  None
+}
+
+///|
+test "reads a u32 only from a REG_DWORD" {
+  let builder = HiveBuilder::new()
+  builder.set_dword(0, "Count", 42)
+  builder.set_string(0, "Name", "Hello")
+  match builder.build() {
+    Err(error) => assert_eq(error.message(), "built")
+    Ok(bytes) =>
+      match parse_header(bytes) {
+        Err(error) => assert_eq(error.message(), "header")
+        Ok(header) =>
+          match parse_key_node(bytes, header.root_cell_offset) {
+            Err(error) => assert_eq(error.message(), "key")
+            Ok(key) =>
+              match list_values(bytes, key) {
+                Err(error) => assert_eq(error.message(), "values")
+                Ok(values) => {
+                  match ed_pick(values, "Count") {
+                    None => assert_eq("found", "missing")
+                    Some(value) =>
+                      assert_eq(value.as_u32(), Some((42 : UInt32)))
+                  }
+                  match ed_pick(values, "Name") {
+                    None => assert_eq("found", "missing")
+                    Some(value) =>
+                      match value.as_u32() {
+                        None => assert_eq("none", "none")
+                        Some(_) => assert_eq("some", "none")
+                      }
+                  }
+                }
+              }
+          }
+      }
+  }
+}
+
+///|
+test "counts a value it cannot parse instead of dropping it silently" {
+  let builder = HiveBuilder::new()
+  builder.set_dword(0, "Count", 7)
+  builder.set_string(0, "Name", "Hello")
+  match builder.build() {
+    Err(error) => assert_eq(error.message(), "built")
+    Ok(bytes) =>
+      match parse_header(bytes) {
+        Err(error) => assert_eq(error.message(), "header")
+        Ok(header) =>
+          match parse_key_node(bytes, header.root_cell_offset) {
+            Err(error) => assert_eq(error.message(), "key")
+            Ok(key) =>
+              match value_offsets(bytes, key) {
+                Err(error) => assert_eq(error.message(), "offsets")
+                Ok(offsets) => {
+                  let patched = bytes.to_array()
+                  let at = hive_bins_base + offsets[1].reinterpret_as_int() + 4
+                  w_i32(patched, at + 8, 2147483632)
+                  let broken = Bytes::from_array(patched)
+                  match HiveEditor::open(broken) {
+                    Err(error) => assert_eq(error.message(), "opened")
+                    Ok(editor) => {
+                      assert_eq(editor.is_lossless(), false)
+                      assert_eq(editor.skipped_values(), 1)
+                    }
+                  }
+                  match HiveEditor::open_strict(broken) {
+                    Err(error) =>
+                      assert_eq(
+                        error.message().has_suffix("were dropped"),
+                        true,
+                      )
+                    Ok(_) => assert_eq("rejected", "accepted")
+                  }
+                }
+              }
+          }
+      }
+  }
+}
+
+///|
+test "a healthy hive loads losslessly" {
+  match ed_open() {
+    Err(error) => assert_eq(error.message(), "opened")
+    Ok(editor) => assert_eq(editor.is_lossless(), true)
+  }
+}

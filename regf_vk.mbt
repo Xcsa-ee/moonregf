@@ -325,6 +325,10 @@ pub fn list_values(
 ///|
 /// Interprets the data as a 32-bit integer when it holds at least four bytes.
 pub fn HiveValue::as_u32(self : HiveValue) -> UInt32? {
+  match self.data_type {
+    Dword => ()
+    _ => return None
+  }
   if self.data.length() < 4 {
     return None
   }

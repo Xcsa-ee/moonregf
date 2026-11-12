@@ -17,22 +17,20 @@ pub(all) struct HiveCell {
 /// Reads the cell header at offset, which is relative to the bins region.
 pub fn read_cell(bytes : Bytes, offset : UInt32) -> Result[HiveCell, RegfError] {
   let relative = offset.reinterpret_as_int()
-  let head = hive_bins_base + relative
-  if relative < 0 || head + 4 > bytes.length() {
+  let limit = bytes.length() - hive_bins_base - 4
+  if relative < 0 || limit < 0 || relative > limit {
     return Err(BadCellOffset(relative))
   }
+  let head = hive_bins_base + relative
   let raw = read_u32_le(bytes, head).reinterpret_as_int()
   if raw == 0 || raw == -2147483648 {
     return Err(BadCellSize(relative))
   }
   let allocated = raw < 0
   let total = if allocated { -raw } else { raw }
-  if total < 4 {
+  if total < 4 || total > bytes.length() - head {
     return Err(BadCellSize(relative))
   }
   let payload_size = total - 4
-  if head + 4 + payload_size > bytes.length() {
-    return Err(BadCellSize(relative))
-  }
   Ok({ offset, payload_size, allocated, })
 }

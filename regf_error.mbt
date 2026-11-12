@@ -37,6 +37,8 @@ pub(all) enum RegfError {
   BadLogPage(Int32)
   // A security descriptor or an sk record cannot be parsed.
   BadSecurityDescriptor(String)
+  /// A hive could not be loaded without dropping records.
+  LossyHive(Int32, Int32)
 }
 
 ///|
@@ -83,5 +85,11 @@ pub fn RegfError::message(self : RegfError) -> String {
       "dirty page at " + offset.to_string() + " is outside the hive bins data"
     BadSecurityDescriptor(detail) =>
       "cannot read the security descriptor: " + detail
+    LossyHive(values, lists) =>
+      "the hive could not be loaded losslessly: " +
+      values.to_string() +
+      " values and " +
+      lists.to_string() +
+      " subkey lists were dropped"
   }
 }
