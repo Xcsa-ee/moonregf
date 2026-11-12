@@ -1,5 +1,5 @@
-# moonregf 的 CI 只回答三个问题：字节布局还对不对、两个后端读得一样吗、写出的 hive 自己能不能读回。
-# 三个作业互相独立，红了能一眼看出是哪一层。
+# 三个作业分别盯住 hive 的一层：base block 的字节布局、记录层在两个后端的一致性、写出的 hive 能否自读回。
+# 安装与依赖索引是每个作业的起点；步骤名写的是这一层要证明什么，命令口径来自 DESIGN.md 的偏移表。
 name: regf
 
 on:
@@ -9,23 +9,23 @@ on:
 
 jobs:
   layout:
-    name: 字节布局（格式 / 类型 / 构建）
+    name: base block 与 cell 布局（格式 / 类型 / 构建）
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: 安装 MoonBit
+      - name: 安装 MoonBit 工具链
         run: |
           curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
           echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
-      - name: 拉取注册表索引
+      - name: 补齐 moonbitlang/x 的索引（新 runner 为空）
         run: moon update
-      - name: 记录工具链版本
+      - name: 记下这次字节布局校验用的工具链版本
         run: moon version --all
-      - name: 格式与类型（警告即失败）
+      - name: 按 DESIGN.md 的偏移口径检查源码（警告即失败）
         run: |
           moon fmt --check
           moon check --target wasm-gc --deny-warn
-      - name: 构建
+      - name: 构建 wasm-gc
         run: moon build --target wasm-gc
 
   parser:
@@ -38,13 +38,13 @@ jobs:
         backend: [wasm-gc, js]
     steps:
       - uses: actions/checkout@v4
-      - name: 安装 MoonBit
+      - name: 安装 MoonBit 工具链
         run: |
           curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
           echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
-      - name: 拉取注册表索引
+      - name: 补齐 moonbitlang/x 的索引（新 runner 为空）
         run: moon update
-      - name: 跑测试（警告即失败）
+      - name: nk / vk / sk 在这台后端上解出的结果一致吗
         run: moon test --target "${{ matrix.backend }}" --deny-warn
 
   roundtrip:
@@ -53,11 +53,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: 安装 MoonBit
+      - name: 安装 MoonBit 工具链
         run: |
           curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
           echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
-      - name: 拉取注册表索引
+      - name: 补齐 moonbitlang/x 的索引（新 runner 为空）
         run: moon update
       - name: 写入器 → 解析器（键数 / 值数 / 校验和）
         run: |

@@ -2,33 +2,34 @@
 
 ## 提交标题
 
-标题格式：方括号里写改动所在的层，后面一句话说清动作与对象。
+标题格式：方括号里写改动所在的 REGF 记录层，后面一句话说清动作与对象。
 
-    [nk] 修正压缩名称的字节数判定
-    [log] 条目前进改用自带长度字段
-    [docs] 补 REGF 字段偏移表
+    [cell] 畸形 hive 不再 panic，取值按类型判定
+    [sk] 解析 DACL 里的访问控制项
+    [bin] 写入器按 4096 字节分箱
 
-层只有这些：
+现在实际在用的层（与 `git log --oneline` 一致）：
 
-| 前缀 | 覆盖范围 |
-| --- | --- |
-| hdr | base block、校验和、序列号 |
-| cell | cell 头与 hbin |
-| nk | 键节点与其名称编码 |
-| lf | 子键索引 lf / lh / li / ri |
-| vk | 值记录、类型码、内联数据 |
-| big | big data 分段（db） |
-| log | 事务日志 HvLE 与重放 |
-| reg | .reg 文本导入导出 |
-| build | 写入器与布局 |
-| cli | cmd/main 与参数 |
-| ci | 工作流 |
-| docs | README、DESIGN、本文件 |
-| repo | 忽略规则、hooks、仓库设置 |
+| 前缀 | 覆盖范围 | 主要文件 |
+| --- | --- | --- |
+| hdr | base block、校验和、序列号、版本 | `regf_base_block.mbt` |
+| cell | cell 头、hbin、越界判定 | `regf_hbin.mbt` |
+| bin | 字节工具与写入器的 bin 分箱布局 | `bin_*.mbt`、`regf_builder.mbt` |
+| sk | 安全描述符、DACL / ACE | `regf_sk.mbt`、`regf_acl.mbt` |
+| rec | 未引用记录与恢复扫描 | `regf_recovery.mbt` |
+| edit | HiveEditor 的打开、修改与回写 | `regf_editor.mbt` |
+| build | 写入器与整体布局 | `regf_builder.mbt` |
+| docs | README、DESIGN、本文件、docs/ | — |
+| repo | 忽略规则、hooks、版本与仓库设置 | — |
 
-层前缀与文件对应：`hdr` 是 `regf_base_block.mbt`、`cell` 是 `regf_hbin.mbt`、`nk` 是 `regf_nk.mbt`、`lf` 是 `regf_subkey_index.mbt`、`vk` 是 `regf_vk.mbt`、`big` 在 `regf_vk.mbt` 与 `regf_builder.mbt`、`log` 是 `regf_hvle.mbt`、`reg` 是 `regt_*.mbt`、`build` 是 `regf_builder.mbt`。
+尚未用到的层（`nk` / `lf` / `vk` / `big` / `log` / `reg` / `cli` / `ci`）按同一规则补进来即可，
+不在表里预留没有提交对应的前缀。
 
 一次提交只动一层，跨层改动拆开；标题不超过 50 个字；正文写清为什么改、怎么验证。
+
+历史：2026-11-08 之前（`1c22504` 及更早）用 conventional commits（`feat:` / `chore:` / `docs:` / `ci:` 等），
+从 `[docs] 固定按层提交前缀` 起改成按 REGF 记录分层，因为提交粒度与 `regf_*.mbt` 的文件划分一一对应。
+历史提交不重写，`git log` 里那段切换是有记录的做法变更。
 
 ## 本地门禁
 

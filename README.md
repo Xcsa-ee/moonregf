@@ -1,9 +1,12 @@
 # moonregf
 
-纯 MoonBit 实现的 Windows 注册表 hive 文件（REGF 二进制格式）读取与写入库：不依赖 Windows API、C 库或 FFI。
+一个 hive 是 4096 字节的 base block 加一串按 8 字节对齐的 cell：nk 指向子键索引与值列表，
+vk 的数据可能拆进多个 db 段，sk 里还嵌着安全描述符。moonregf 逐字段读出这些记录、允许改完再写回，
+全部用 MoonBit 完成，在 wasm-gc 与 js 后端都不碰 Windows API。
 
-Windows 把 NTUSER.DAT、SYSTEM、SOFTWARE 等配置单元以 REGF 格式存盘。本项目在纯 MoonBit 中读写该格式，
-让工具链在 Windows 之外（Linux CI、wasm-gc、浏览器）也能读取与生成 hive，并把 `.reg` 文本导入成 hive。
+Windows 把 NTUSER.DAT、SYSTEM、SOFTWARE 等配置单元以 REGF 格式存盘。本项目让 Linux CI 与浏览器里的
+MoonBit 代码也能读取、生成 hive，并把 `.reg` 文本导入成 hive；零 FFI 这一约束的理由与代价见
+[DESIGN.md](DESIGN.md)。
 
 ## 安装
 
@@ -110,13 +113,19 @@ moon.pkg 中导入：
     moon run examples/basic
 
 
-## 演示视频
+## 从十六进制走到写回
 
-[docs/demo.mp4](docs/demo.mp4) 用真实命令演示：两个后端的门禁与测试、解析本机 hive、遍历键树、值导出并与独立解析器对拍、生成 hive 后由独立解析器读回、`.reg` 往返、事务日志重放。
+想先看清字节，读 [docs/byte-walkthrough.md](docs/byte-walkthrough.md)：它把一个 8 KiB hive 从
+`0x0000 72 65 67 66` 起逐字段拆开，手算前 508 字节的 XOR 校验和，并给出自己复核用的
+`moon run cmd/main -- --build demo.hive` 与 `xxd` 命令。
+[docs/demo.mp4](docs/demo.mp4) 是同一条链的动态版本，依次是：base block 与校验和、键树遍历、
+值导出与 regipy 对拍、构造 hive 后由独立解析器读回、`.reg` 往返、HvLE 脏页重放。
 
-## 参考与来源
+## 格式依据与对拍边界
 
-实现依据、关键判断与对拍方式见 [DESIGN.md](DESIGN.md)。格式按公开说明实现，未移植上游源码；`reg.exe` 与 regipy 只在本机作为独立解析器对拍，不进入仓库、不作为运行依赖。
+REGF 的记录布局与 `.reg` 文本按公开格式说明实现，未移植任何上游源码；字段偏移的唯一口径是
+[DESIGN.md](DESIGN.md) 里的表。对拍只在仓库外用两个独立解析器做：Windows 自带 `reg.exe` 与
+regipy 6.5.0（Apache-2.0），在本机比对键路径与值名，二者都不进仓库、不参与运行。
 
 ## 记录支持矩阵
 
@@ -129,37 +138,46 @@ moon.pkg 中导入：
 | nk 键节点 | 是 | 是 | 读取支持压缩与 UTF-16 名称；写入按名称自动选压缩或 UTF-16LE |
 | lf / lh / li | 是 | 是 | 按子键数与名称编码自动选择，也可显式指定 |
 | ri 根索引 | 是 | 是 | 子键超过 500 个时自动生成，每片 500 项 |
-| vk 值记录 | 是 | 是 | 类型码 1 / 2 / 3 / 4 / 7 / 11 已映射 |
+| vk 值记录 | 是 | 是 | 0–11 共 12 种类型码都可原样读写；语义访问器只覆盖 SZ / DWORD / MULTI_SZ |
 | 内联数据 | 是 | 是 | 数据不超过 4 字节时直接存在 vk 里 |
 | big data（db） | 是 | 是 | 读取按段拼接；写入按 16344 字节分段 |
 | del（已删除键） | 是 | 不适用 | `--orphans` 扫出未被活动键树引用的 nk 与 del 记录 |
-| sk 安全描述符 | 是 | 是 | 解析属主与属组 SID、ACL 是否存在；写入按给定描述符生成 sk 记录 |
+| sk 安全描述符 | 是 | 是 | 读取可解出属主、属组与 DACL / ACE；写入把给定描述符字节原样嵌入 sk，不构造 ACE |
 | .reg 文本 | 是 | 是 | 导入支持 REGEDIT4 与 version 5.00；导出固定 version 5.00 |
 | .reg 删除段 | 否 | 否 | 遇到 [-key] 返回 UnsupportedDelete |
-| HvLE 事务日志 | 是 | 否 | 只解析 8.1 及更新版本；写入与生成日志不在范围内 |
+| HvLE 事务日志 | 是 | 否 | 只重放 8.1 及更新版本的单份 HvLE 日志；不生成日志，不自动挑选 .LOG1 / .LOG2 |
 
 ## 持续集成
 
-`.github/workflows/regf.yml` 拆成三个作业，红了能一眼看出是哪一层出问题：
+`.github/workflows/regf.yml` 按 hive 的三层结构分开跑，一个作业对应一种会出错的方式：
 
-1. **字节布局**：`moon fmt --check` + `moon check --target wasm-gc --deny-warn`，再 `moon build`。
-2. **解析器测试**：`wasm-gc` 与 `js` 两个后端的矩阵，各自跑 `moon test --deny-warn`。
-3. **写出的 hive 必须能被读回**：先用 `--build` 生成 hive，再用本库自己的 CLI 读回，断言键数 3、值数 3、校验和存在；
+1. **字节布局**：`moon fmt --check` + `moon check --target wasm-gc --deny-warn`，再 `moon build`；
+   守的是 DESIGN.md 里那张偏移表有没有被改动带偏。
+2. **记录解析**：`wasm-gc` 与 `js` 两个后端的矩阵，各自跑 `moon test --deny-warn`；
+   同一份 cell 在两个后端必须解出同样的 nk / vk。
+3. **写读往返**：先用 `--build` 生成 hive，再用本库自己的 CLI 读回，断言键数 3、值数 3、校验和存在；
    再把 `examples/sample.reg` 导入成 hive 并导出回文本，断言 `dword:0000002a`、`hex(2)` 与嵌套键都在。
 
 ## 格式版本与互操作
 
 读取端接受 base block 声明的 1.3 / 1.5 / 1.6 三个版本（`HiveHeader::version_supported`），其余版本仍可解析但会报告为不受支持。
-本机 `NTUSER.DAT` 是 1.5；把同一份夹具的版本字段改成 1.3 与 1.6 后，本库与 regipy 都能读出相同的键树，也能经 `--rebuild` 写回。
+本机 `NTUSER.DAT` 是 1.5；把同一份夹具的版本字段改成 1.3 与 1.6 后，本库与 regipy 都能读出相同的键树，
+但**写出一律固定为 1.5**（`regf_builder.mbt` 的 base block 常量），`--rebuild` 不会保留原版本号。
 
-事务日志按序列号次序合并：先应用较旧的一份，再应用较新的一份；比 hive 次序列号旧的日志不动作。
-在真实 `NTUSER.DAT.LOG1` 上验证过两种情形：干净 hive 应用 0 条且字节不变，降次序列号后应用 1 条并与独立实现逐字节一致。
+事务日志按序列号次序应用：先较旧的一份，再较新的一份；比 hive 次序列号旧的日志不动作。
+现有的 `replay_log(hive, log)` 一次只吃一份日志，两份日志的顺序合并目前由调用方串联（测试里手工调用两次），
+CLI 也只接一个日志参数。在真实 `NTUSER.DAT.LOG1` 上验证过两种情形：干净 hive 应用 0 条且字节不变，
+降次序列号后应用 1 条并与独立实现逐字节一致。
 
-## 已知限制
+## 边界
 
-- `.reg` 导入不支持 [-key] 删除段，遇到时返回 UnsupportedDelete。
-- 事务日志只解析 Windows 8.1 及更新版本的 HvLE 格式；更早的 512 字节头格式返回 UnsupportedLogVersion。
-- `.reg` 导出输出 UTF-8 文本；导入端支持 UTF-16LE 与 UTF-8 两种输入。
+下面是明确的工程边界，不是待办：
+
+- 不调用 Windows 注册表 API，不把 hive 挂载或加载回 Windows；REG_LINK 只当作 UTF-16LE 文本读出，不解析目标、不跟随。
+- `.reg` 导入不支持 [-key] 删除段（UnsupportedDelete）；导出固定 UTF-8，导入接受 UTF-16LE 与 UTF-8。
+- 事务日志只解析 Windows 8.1 及更新版本的 HvLE；更早的 512 字节头格式返回 UnsupportedLogVersion；不生成日志。
+- `HiveEditor` / `--rebuild` 是全量重写：不保留空闲空间、已删除记录与未引用 cell，不复用空闲 cell，不做增量分配。
+- nk 的写入时间戳按两个 u32 原样保真，不解释成日历时间；`--orphans` 只扫未引用的 nk 与 del 记录。
 
 ## 数据与隐私
 
@@ -171,8 +189,9 @@ hive 通常含用户名、路径、产品密钥等信息，属于个人数据。
 
 ## 开发与提交约定
 
-提交标题按改动所在的层加方括号前缀（hdr / cell / nk / lf / vk / big / log / reg / build / cli / ci / docs / repo），
-夹具再生步骤与本地门禁命令写在 [CONTRIBUTING.md](CONTRIBUTING.md)。
+提交标题按改动所在的 REGF 记录层加方括号前缀，实际在用的层与对应文件见
+[CONTRIBUTING.md](CONTRIBUTING.md)（该文也写明了 2026-11-08 从 conventional commits 切换过来的原因）。
+夹具、真实 hive 的存放规则与本地门禁命令同样写在那里。
 
 ## 许可
 
